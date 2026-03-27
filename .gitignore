@@ -1,0 +1,48 @@
+# Python
+
+**pycache**/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual Environments
+
+venv/
+env/
+.venv/
+
+# Flask
+
+instance/
+*.db
+
+# Environment variables
+
+.env
+
+# Logs
+
+*.log
+
+# VS Code / IDE
+
+.vscode/
+.idea/
+
+# OS files
+
+.DS_Store
+Thumbs.db
+
+# Node / Vue
+
+node_modules/
+dist/
+
+# Redis
+
+dump.rdb
+
+# Celery
+
+celerybeat-schedule
