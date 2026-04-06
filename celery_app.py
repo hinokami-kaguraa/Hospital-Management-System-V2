@@ -1,9 +1,39 @@
 from celery import Celery
 from celery.schedules import crontab
 from datetime import datetime, timedelta
-import csv, os
+import csv, os, smtplib, requests
 from io import StringIO
+from models import Appointment
 
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+def send_google_chat_message(message_text):
+    from app import app
+
+    webhook_url = app.config.get("GOOGLE_CHAT_WEBHOOK_URL")
+    if not webhook_url:
+        print("[CHAT WEBHOOK ERROR] GOOGLE_CHAT_WEBHOOK_URL not configured")
+        return False
+
+    try:
+        response = requests.post(
+            webhook_url,
+            json={"text": message_text},
+            headers={"Content-Type": "application/json; charset=UTF-8"},
+            timeout=10
+        )
+
+        if response.status_code in [200, 204]:
+            print("[CHAT WEBHOOK SUCCESS] Message sent")
+            return True
+
+        print(f"[CHAT WEBHOOK FAILED] {response.status_code} - {response.text}")
+        return False
+
+    except Exception as e:
+        print(f"[CHAT WEBHOOK ERROR] {str(e)}")
+        return False
 
 # ─────────────────────────────────────────────
 #  CELERY FACTORY (IMPORTANT)
@@ -46,18 +76,34 @@ def send_daily_reminders(self):
             status="Booked"
         ).all()
 
+        if not appointments:
+            print("[DAILY REMINDER] No appointments for today")
+            return
+
+        # Build a single consolidated message
+        lines = [f"📋 *Daily Appointment Reminders — {today.strftime('%d %b %Y')}*\n"]
+
         for appt in appointments:
-            message = (
-                f"Reminder: {appt.patient.name}, you have an appointment "
-                f"with Dr. {appt.doctor.user.name} at {appt.slot} today."
+            lines.append(
+                f"• *{appt.patient.name}* → Dr. {appt.doctor.user.name} "
+                f"({appt.doctor.specialization or 'General'}) at *{appt.slot}*"
             )
 
-            # TODO: Replace with Email / SMS / Google Chat
-            print(f"[REMINDER SENT] {message}")
+        lines.append(f"\n_Total: {len(appointments)} appointment(s)_")
+
+        message = "\n".join(lines)
+
+        # Send via Google Chat webhook
+        result = send_google_chat_message(message)
+
+        if result:
+            print(f"[DAILY REMINDER] Sent {len(appointments)} reminders via Google Chat")
+        else:
+            print(f"[DAILY REMINDER] Webhook failed, printing to console:")
+            print(message)
 
     except Exception as exc:
         raise self.retry(exc=exc, countdown=60)
-
 
 # ═══════════════════════════════════════════════
 #  TASK 2 — MONTHLY REPORT
@@ -65,8 +111,10 @@ def send_daily_reminders(self):
 # ═══════════════════════════════════════════════
 @celery.task(bind=True, name="tasks.monthly_report", max_retries=3)
 def monthly_report(self):
-    from models import Appointment
+
     try:
+        from app import app
+
         now = datetime.now()
 
         # Calculate previous month
@@ -92,6 +140,7 @@ def monthly_report(self):
                 doctors_data[doc_id] = {
                     "doctor": appt.doctor.user.name,
                     "email": appt.doctor.user.email,
+                    "specialization": appt.doctor.specialization or "",
                     "appointments": []
                 }
 
@@ -100,17 +149,103 @@ def monthly_report(self):
                 "date": str(appt.date),
                 "slot": appt.slot,
                 "diagnosis": appt.treatment.diagnosis if appt.treatment else "N/A",
-                "prescription": appt.treatment.prescription if appt.treatment else "N/A"
+                "prescription": appt.treatment.prescription if appt.treatment else "N/A",
+                "medicines": appt.treatment.medicines if appt.treatment else "N/A"
             })
 
-        print(f"[MONTHLY REPORT GENERATED] {month_label}")
-        for doc in doctors_data.values():
-            print(f"Doctor: {doc['doctor']} | Appointments: {len(doc['appointments'])}")
+        # Send email to each doctor
+        for doc_id, doc in doctors_data.items():
+            rows_html = ""
+            for i, a in enumerate(doc["appointments"], 1):
+                rows_html += f"""
+                <tr>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e8f0f7;">{i}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e8f0f7;">{a['patient']}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e8f0f7;">{a['date']}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e8f0f7;">{a['slot']}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e8f0f7;">{a['diagnosis']}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e8f0f7;">{a['prescription']}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e8f0f7;">{a['medicines']}</td>
+                </tr>
+                """
 
-        # TODO: send email / generate HTML report
+            html_report = f"""
+            <html>
+            <body style="margin:0;padding:0;font-family:'Segoe UI',sans-serif;background:#f0f7fb;">
+                <div style="max-width:800px;margin:20px auto;background:#fff;border-radius:16px;
+                            box-shadow:0 4px 20px rgba(31,69,110,0.1);overflow:hidden;">
+
+                    <div style="background:linear-gradient(135deg,#1F456E,#0492C2);padding:28px 32px;color:#fff;">
+                        <h1 style="margin:0;font-size:22px;">Monthly Activity Report</h1>
+                        <p style="margin:6px 0 0;opacity:0.85;font-size:14px;">{month_label} — SehatSaathi HMS</p>
+                    </div>
+
+                    <div style="padding:28px 32px;">
+                        <p style="color:#1F456E;font-size:15px;">
+                            Dear <strong>Dr. {doc['doctor']}</strong>,
+                        </p>
+                        <p style="color:#555;font-size:14px;line-height:1.6;">
+                            Here is your monthly activity summary for <strong>{month_label}</strong>.
+                            You completed <strong>{len(doc['appointments'])}</strong> appointment(s).
+                        </p>
+
+                        <table style="width:100%;border-collapse:collapse;margin-top:20px;font-size:13px;">
+                            <thead>
+                                <tr style="background:#edf8fd;">
+                                    <th style="padding:10px 14px;text-align:left;color:#084d74;font-size:12px;
+                                              text-transform:uppercase;letter-spacing:0.5px;">#</th>
+                                    <th style="padding:10px 14px;text-align:left;color:#084d74;font-size:12px;
+                                              text-transform:uppercase;letter-spacing:0.5px;">Patient</th>
+                                    <th style="padding:10px 14px;text-align:left;color:#084d74;font-size:12px;
+                                              text-transform:uppercase;letter-spacing:0.5px;">Date</th>
+                                    <th style="padding:10px 14px;text-align:left;color:#084d74;font-size:12px;
+                                              text-transform:uppercase;letter-spacing:0.5px;">Slot</th>
+                                    <th style="padding:10px 14px;text-align:left;color:#084d74;font-size:12px;
+                                              text-transform:uppercase;letter-spacing:0.5px;">Diagnosis</th>
+                                    <th style="padding:10px 14px;text-align:left;color:#084d74;font-size:12px;
+                                              text-transform:uppercase;letter-spacing:0.5px;">Prescription</th>
+                                    <th style="padding:10px 14px;text-align:left;color:#084d74;font-size:12px;
+                                              text-transform:uppercase;letter-spacing:0.5px;">Medicines</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows_html}
+                            </tbody>
+                        </table>
+
+                        <p style="color:#888;font-size:13px;margin-top:24px;">
+                            This is an automated report from SehatSaathi Hospital Management System.
+                        </p>
+                    </div>
+
+                </div>
+            </body>
+            </html>
+            """
+
+            # Send email
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = f"Monthly Activity Report — {month_label}"
+                msg["From"]    = app.config["MAIL_SENDER"]
+                msg["To"]      = doc["email"]
+                msg.attach(MIMEText(html_report, "html"))
+
+                with smtplib.SMTP(app.config["MAIL_SERVER"], app.config["MAIL_PORT"]) as server:
+                    server.starttls()
+                    server.login(app.config["MAIL_USERNAME"], app.config["MAIL_PASSWORD"])
+                    server.sendmail(app.config["MAIL_SENDER"], doc["email"], msg.as_string())
+
+                print(f"[MONTHLY REPORT SENT] Dr. {doc['doctor']} → {doc['email']}")
+
+            except Exception as mail_err:
+                print(f"[MONTHLY REPORT MAIL ERROR] Dr. {doc['doctor']}: {str(mail_err)}")
+
+        print(f"[MONTHLY REPORT COMPLETE] {month_label} — {len(doctors_data)} doctors processed")
 
     except Exception as exc:
         raise self.retry(exc=exc, countdown=120)
+
 
 
 # ═══════════════════════════════════════════════
