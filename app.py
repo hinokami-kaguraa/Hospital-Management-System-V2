@@ -405,12 +405,12 @@ def doctor_availability(doctor_id):
             status="Booked"
         ).first()
 
-        if not already_booked:
-            result.append({
-                "id": a.id,
-                "date": a.date.strftime("%Y-%m-%d"),
-                "slot": a.time_slot
-            })
+        result.append({
+            "id": a.id,
+            "date": a.date.strftime("%Y-%m-%d"),
+            "slot": a.time_slot,
+            "is_booked": bool(already_booked)
+        })
 
     return jsonify(result)
 
@@ -1085,6 +1085,12 @@ def add_availability():
     ).first()
     if exists:
         return json_error("This slot already exists")
+    
+        # Normalize slot string: replace en-dash/em-dash with hyphen
+    time_slot = data.get("time_slot", "").strip()
+    time_slot = time_slot.replace("–", "-").replace("—", "-")
+    time_slot = " ".join(time_slot.split())  # collapse multiple spaces
+
 
     new_slot = DoctorAvailability(
         doctor_id=doctor.id,

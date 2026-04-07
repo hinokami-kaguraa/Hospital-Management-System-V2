@@ -466,57 +466,54 @@ app.component('register-page', {
 ========================================================= */
 app.component('patient-navbar', {
     template: `
-    <nav class="navbar navbar-expand-lg patient-navbar">
-        <div class="container-fluid">
-            <a href="#" class="navbar-brand" @click.prevent="$root.currentView='patient-dashboard'">
-                <img src="/static/images/logo.png" alt="SehatSaathi Logo">
-            </a>
+    <nav class="patient-navbar-bar">
+        <div class="pnav-brand" @click="$root.currentView='patient-dashboard'">
+            <img src="/static/images/logo.png" alt="SehatSaathi" class="pnav-logo">
+        </div>
 
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#patientNav" aria-controls="patientNav" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
+        <ul class="pnav-links">
+            <li>
+                <button class="pnav-link"
+                    :class="{ active: $root.currentView === 'patient-dashboard' }"
+                    @click="$root.currentView='patient-dashboard'">
+                    <i class="bi bi-grid-1x2"></i> Dashboard
+                </button>
+            </li>
+            <li>
+                <button class="pnav-link"
+                    :class="{ active: $root.currentView === 'history-page' }"
+                    @click="$root.currentView='history-page'">
+                    <i class="bi bi-journal-medical"></i> History
+                </button>
+            </li>
+            <li>
+                <button class="pnav-link"
+                    :class="{ active: $root.currentView === 'edit-profile-page' }"
+                    @click="$root.currentView='edit-profile-page'">
+                    <i class="bi bi-person-circle"></i> Profile
+                </button>
+            </li>
+        </ul>
+
+        <div class="pnav-right">
+            <div class="pnav-avatar">{{ initials }}</div>
+            <span class="pnav-username">{{ $root.user && $root.user.name }}</span>
+            <button class="pnav-logout" @click="logout">
+                <i class="bi bi-box-arrow-right"></i> Logout
             </button>
-
-            <div class="collapse navbar-collapse" id="patientNav">
-                <ul class="navbar-nav me-auto ms-lg-4 mb-2 mb-lg-0">
-                    <li class="nav-item">
-                        <a href="#" class="nav-link"
-                           :class="{ active: $root.currentView === 'patient-dashboard' }"
-                           @click.prevent="$root.currentView='patient-dashboard'">
-                           Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="#" class="nav-link"
-                           :class="{ active: $root.currentView === 'history-page' }"
-                           @click.prevent="$root.currentView='history-page'">
-                           History
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="#" class="nav-link"
-                           :class="{ active: $root.currentView === 'edit-profile-page' }"
-                           @click.prevent="$root.currentView='edit-profile-page'">
-                           Edit Profile
-                        </a>
-                    </li>
-                </ul>
-
-                <div class="d-flex align-items-center gap-3 flex-wrap">
-                    <span class="fw-semibold text-secondary">
-                        {{ $root.user && $root.user.name }}
-                    </span>
-                    <button class="patient-logout-btn" @click="logout">Logout</button>
-                </div>
-            </div>
         </div>
     </nav>
     `,
+    computed: {
+        initials() {
+            const name = this.$root.user && this.$root.user.name
+            if (!name) return 'P'
+            return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+        }
+    },
     methods: {
         async logout() {
-            try {
-                await axios.post('/api/logout')
-            } catch (error) {
-            }
+            try { await axios.post('/api/logout') } catch (e) {}
             this.$root.user = null
             this.$root.selectedDepartment = null
             this.$root.selectedDoctor = null
@@ -525,7 +522,9 @@ app.component('patient-navbar', {
     }
 })
 
-
+/* =========================================================
+   PATIENT DASHBOARD
+========================================================= */
 /* =========================================================
    PATIENT DASHBOARD
 ========================================================= */
@@ -535,25 +534,109 @@ app.component('patient-dashboard', {
         <patient-navbar></patient-navbar>
 
         <div class="patient-main">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <h3 class="patient-page-title mb-0">Welcome, {{ $root.user && $root.user.name }}</h3>
+
+            <!-- ── Hero Row: Banner + Stats ── -->
+            <div class="patient-hero-row">
+
+                <!-- Welcome Banner -->
+                <div class="patient-banner">
+                    <img src="/static/images/banner.png" class="patient-banner-bg" alt="banner">
+                    <div class="patient-banner-content">
+                        <div class="patient-banner-hello">Welcome back 👋</div>
+                        <div class="patient-banner-name">{{ $root.user && $root.user.name }}</div>
+                        <div class="patient-banner-sub">
+                            Take care of your health — book, track and manage your appointments.
+                        </div>
+                        <button class="patient-banner-cta" @click="$root.currentView='history-page'">
+                            <i class="bi bi-journal-medical"></i> View History
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Stats Panel -->
+                <div class="patient-stats-panel">
+                    <div class="pt-stat-pill">
+                        <div class="pt-stat-icon pt-icon-upcoming">
+                            <i class="bi bi-calendar-check"></i>
+                        </div>
+                        <div style="text-align:right; display:flex; flex-direction:column; justify-content:center; align-items:flex-end; height:100%;">
+                            <div class="pt-stat-val">{{ upcomingCount }}</div>
+                            <div class="pt-stat-lbl">Upcoming Appointments</div>
+                        </div>
+                    </div>
+                    <div class="pt-stat-pill">
+                        <div class="pt-stat-icon pt-icon-completed">
+                            <i class="bi bi-check-circle"></i>
+                        </div>
+                        <div style="text-align:right; display:flex; flex-direction:column; justify-content:center; align-items:flex-end; height:100%;">
+                            <div class="pt-stat-val">{{ completedCount }}</div>
+                            <div class="pt-stat-lbl">Completed Appointments</div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div v-if="message" class="alert alert-success">{{ message }}</div>
-            <div v-if="error" class="alert alert-danger">{{ error }}</div>
-
-            <div class="patient-section-card">
-                <div class="patient-subtitle">Search Doctors</div>
-                <input
-                    v-model="searchQuery"
-                    @input="searchDoctors"
-                    class="form-control patient-search-input"
-                    placeholder="Search by doctor name or specialization"
-                >
+            <!-- Alerts -->
+            <div v-if="message" class="alert alert-success rounded-3 mb-3">
+                <i class="bi bi-check-circle me-2"></i>{{ message }}
+            </div>
+            <div v-if="error" class="alert alert-danger rounded-3 mb-3">
+                <i class="bi bi-exclamation-circle me-2"></i>{{ error }}
             </div>
 
+            <!-- ── Search ── -->
             <div class="patient-section-card">
-                <div class="patient-subtitle">Departments</div>
+                <div class="pt-section-header">
+                    <div class="patient-subtitle">
+                        <i class="bi bi-search" style="color:#0d9488"></i>
+                        Find a Doctor
+                    </div>
+                </div>
+                <div class="pt-search-wrap">
+                    <i class="bi bi-search pt-search-icon"></i>
+                    <input
+                        v-model="searchQuery"
+                        @input="searchDoctors"
+                        class="patient-search-input"
+                        placeholder="Search by doctor name or specialization…"
+                    >
+                </div>
+
+                <!-- Search Results -->
+                <div v-if="searchQuery.trim()" class="mt-3">
+                    <div v-if="searchResults.length">
+                        <div v-for="doc in searchResults" :key="doc.id"
+                             class="pt-search-result-item">
+                            <div>
+                                <div class="pt-search-name">
+                                    <i class="bi bi-person-badge me-1" style="color:#0d9488"></i>
+                                    Dr. {{ doc.name }}
+                                </div>
+                                <div class="pt-search-meta">
+                                    {{ doc.specialization }}
+                                    <span v-if="doc.department"> · {{ doc.department }}</span>
+                                </div>
+                            </div>
+                            <button class="patient-btn-outline" @click="viewDoctor(doc)">
+                                View
+                            </button>
+                        </div>
+                    </div>
+                    <div v-else class="patient-empty">
+                        <i class="bi bi-search"></i>
+                        No doctors found for "{{ searchQuery }}"
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Departments ── -->
+            <div class="patient-section-card">
+                <div class="pt-section-header">
+                    <div class="patient-subtitle">
+                        Departments
+                    </div>
+                    <span class="pt-badge-count">{{ departments.length }} available</span>
+                </div>
 
                 <div v-if="departments.length">
                     <div v-for="d in departments" :key="d.id" class="patient-list-item">
@@ -564,158 +647,213 @@ app.component('patient-dashboard', {
                         <button class="patient-btn-primary" @click="openDept(d)">View Doctors</button>
                     </div>
                 </div>
-
                 <div v-else class="patient-empty">No departments found.</div>
             </div>
 
-            <div class="patient-section-card" v-if="searchQuery.trim()">
-                <div class="patient-subtitle">Search Results</div>
-
-                <div v-if="searchResults.length">
-                    <div v-for="doc in searchResults" :key="doc.id" class="patient-list-item">
-                        <div>
-                            <div class="patient-list-title">Dr. {{ doc.name }}</div>
-                            <div class="patient-list-meta">
-                                {{ doc.specialization }}<span v-if="doc.department"> | {{ doc.department }}</span>
-                            </div>
-                        </div>
-                        <button class="patient-btn-outline" @click="viewDoctor(doc)">View</button>
-                    </div>
-                </div>
-
-                <div v-else class="patient-empty">No matching doctors found.</div>
-            </div>
-
+            <!-- ── Upcoming Appointments ── -->
             <div class="patient-section-card">
                 <div class="patient-subtitle">Upcoming Appointments</div>
 
-                <div class="patient-table-wrap" v-if="upcomingAppointments.length">
-                    <table class="patient-table">
+                <div class="patient-table-wrap" style="margin-top:1rem;" v-if="upcomingAppointments.length">
+                    <table class="patient-table" style="width:100%;">
                         <thead>
-                            <tr>
-                                <th>Doctor</th>
-                                <th>Department</th>
-                                <th>Date</th>
-                                <th>Time</th>
-                                <th>Status</th>
-                                <th>Action</th>
+                            <tr style="background:#0d9488;">
+                                <th style="color:#fff;text-transform:uppercase;font-size:0.75rem;letter-spacing:0.05em;padding:1rem 1.2rem;font-weight:700;">Doctor</th>
+                                <th style="color:#fff;text-transform:uppercase;font-size:0.75rem;letter-spacing:0.05em;padding:1rem 1.2rem;font-weight:700;">Department</th>
+                                <th style="color:#fff;text-transform:uppercase;font-size:0.75rem;letter-spacing:0.05em;padding:1rem 1.2rem;font-weight:700;">Date</th>
+                                <th style="color:#fff;text-transform:uppercase;font-size:0.75rem;letter-spacing:0.05em;padding:1rem 1.2rem;font-weight:700;">Slot</th>
+                                <th style="color:#fff;text-transform:uppercase;font-size:0.75rem;letter-spacing:0.05em;padding:1rem 1.2rem;font-weight:700;">Action</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="a in upcomingAppointments" :key="a.id">
-                                <td>{{ a.doctor_name }}</td>
-                                <td>{{ a.department }}</td>
-                                <td>{{ a.date }}</td>
-                                <td>{{ a.time }}</td>
-                                <td>
-                                    <span class="patient-status status-booked">{{ a.status }}</span>
-                                </td>
-                                <td>
-                                    <div class="d-flex gap-2 flex-wrap">
+                            <tr v-for="a in upcomingAppointments" :key="a.id"
+                                style="border-bottom:1px solid #f1f5f9; transition: background 0.15s;"
+                                @mouseenter="$event.currentTarget.style.background='#f0fdf9'"
+                                @mouseleave="$event.currentTarget.style.background=''">
+                                <td style="padding:1.1rem 1.2rem; white-space:nowrap; font-weight:700; color:#1f2937; font-size:0.95rem;">Dr. {{ a.doctor_name }}</td>
+                                <td style="padding:1.1rem 1.2rem; white-space:nowrap; color:#4b5563; font-size:0.92rem;">{{ a.department }}</td>
+                                <td style="padding:1.1rem 1.2rem; white-space:nowrap; color:#4b5563; font-size:0.92rem;">{{ fmtDate(a.date) }}</td>
+                                <td style="padding:1.1rem 1.2rem; white-space:nowrap; color:#4b5563; font-size:0.92rem;">{{ a.time }}</td>
+                                <td style="padding:1.1rem 1.2rem;">
+                                    <div class="d-flex gap-2">
                                         <button class="patient-btn-warning" @click="openReschedule(a)">Reschedule</button>
-                                        <button class="patient-btn-danger" @click="cancelAppointment(a.id)">Cancel</button>
+                                        <button class="patient-btn-danger"  @click="cancelAppointment(a.id)">Cancel</button>
                                     </div>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
-
                 <div v-else class="patient-empty">No upcoming appointments.</div>
             </div>
 
+            <!-- ── Reschedule Panel ── -->
             <div v-if="rescheduleMode" class="patient-section-card">
-                <div class="patient-subtitle">Reschedule Appointment</div>
-                <p class="patient-list-meta mb-3">
-                    Current: {{ selected.date }} at {{ selected.time }} with {{ selected.doctor_name }}
-                </p>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="patient-subtitle mb-0">
+                        Reschedule — Dr. {{ selected && selected.doctor_name }}
+                    </div>
+                    <button class="patient-btn-outline" @click="closeReschedule">Close</button>
+                </div>
 
-                <div v-if="rescheduleSlots.length">
-                    <label class="fw-semibold mb-2">Select a new slot</label>
-                    <div class="d-flex flex-wrap gap-2 mb-3">
-                        <div v-for="s in rescheduleSlots" :key="s.date + s.slot"
-                            class="patient-slot-box"
-                            :class="form.date === s.date && form.slot === s.slot ? 'selected' : 'available'"
-                            @click="form.date = s.date; form.slot = s.slot"
-                            style="cursor:pointer;">
-                            {{ s.date }} — {{ s.slot }}
+                <div class="avail-picker-card reschedule-picker">
+                    <!-- LEFT: Calendar -->
+                    <div class="avail-calendar">
+                        <div class="avail-cal-header">
+                            <button class="avail-cal-nav" @click="rsPrevMonth"
+                                    :disabled="rsCalYear === nowYear && rsCalMonth === nowMonth">‹</button>
+                            <span class="avail-cal-month">{{ rsCalMonthLabel }}</span>
+                            <button class="avail-cal-nav" @click="rsNextMonth">›</button>
+                        </div>
+                        <div class="avail-cal-grid">
+                            <div v-for="d in ['Su','Mo','Tu','We','Th','Fr','Sa']"
+                                :key="d" class="avail-cal-dow">{{ d }}</div>
+                            <button v-for="(cell, i) in rsCalDays" :key="i"
+                                    class="avail-cal-day"
+                                    :class="{
+                                        'avail-cal-day--selected': cell && cell.dateStr === rsSelectedDate,
+                                        'avail-cal-day--today':    cell && cell.isToday,
+                                        'avail-cal-day--disabled': !cell || cell.isPast
+                                    }"
+                                    :disabled="!cell || cell.isPast"
+                                    @click="cell && !cell.isPast && rsSelectDate(cell)">
+                                {{ cell ? cell.day : '' }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- DIVIDER -->
+                    <div class="avail-divider"></div>
+
+                    <!-- RIGHT: Slots -->
+                    <div class="avail-slots-panel">
+                        <div class="avail-slots-date">
+                            {{ rsSelectedDate ? rsFormatDate(rsSelectedDate) : 'Select a date' }}
+                        </div>
+
+                        <div class="avail-slots-list" v-if="rsSelectedDate && rsAllSlots.length">
+                            <button v-for="slot in rsAllSlots" :key="slot"
+                                    class="avail-slot-btn"
+                                    :class="rsSlotBtnClass(slot)"
+                                    :disabled="!rsIsAvailable(slot)"
+                                    @click="rsIsAvailable(slot) && rsSelectSlot(slot)">
+                                <span v-if="rsSelectedSlot === slot">✓ </span>
+                                {{ slot }}
+                                <span v-if="rsSelectedSlot === slot"
+                                    style="font-size:0.78em;margin-left:6px;opacity:0.9;">Selected</span>
+                            </button>
+
+                            <button v-if="rsSelectedSlot"
+                                    class="avail-slot-btn"
+                                    style="background:linear-gradient(135deg,#5bbf9c,#48a985);
+                                        border-color:#48a985;color:#fff;margin-top:0.5rem;"
+                                    @click="confirmReschedule">
+                                Confirm Reschedule
+                            </button>
+                        </div>
+
+                        <div v-else class="avail-slots-date"
+                            style="color:#94a3b8;margin-top:2rem;font-size:0.9rem;">
+                            ← Select a date to view slots
                         </div>
                     </div>
                 </div>
-                <div v-else class="patient-empty mb-3">No other available slots for this doctor.</div>
-
-                <div class="d-flex gap-2 flex-wrap">
-                    <button class="patient-btn-primary" @click="confirmReschedule"
-                            :disabled="!form.date || !form.slot">Confirm</button>
-                    <button class="patient-btn-outline" @click="closeReschedule">Cancel</button>
-                </div>
             </div>
-
         </div>
     </div>
     `,
     data() {
         return {
-            departments: [],
-            appointments: [],
-            searchQuery: '',
-            searchResults: [],
+            departments:    [],
+            appointments:   [],
+            searchQuery:    '',
+            searchResults:  [],
+            selected:       null,
+            message:        '',
+            error:          '',
+            
+            // Reschedule State
             rescheduleMode: false,
-            rescheduleSlots: [],
-            selected: null,
-            form: { date: "", slot: "" },
-            message: '',
-            error: ''
+            rsSlotData:    [],
+            rsAvailable:   [],
+            rsSelectedDate: null,
+            rsSelectedSlot: null,
+            rsCalYear:  new Date().getFullYear(),
+            rsCalMonth: new Date().getMonth(),
+            nowYear:    new Date().getFullYear(),
+            nowMonth:   new Date().getMonth(),
         }
     },
     computed: {
         upcomingAppointments() {
             return this.appointments.filter(a => a.status === 'Booked')
+        },
+        upcomingCount() {
+            return this.appointments.filter(a => a.status === 'Booked').length
+        },
+        completedCount() {
+            return this.appointments.filter(a => a.status === 'Completed').length
+        },
+        doctorsVisited() {
+            return [...new Set(this.appointments.map(a => a.doctor_name))].length
+        },
+        rsCalMonthLabel() {
+            return new Date(this.rsCalYear, this.rsCalMonth, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+        },
+        rsCalDays() {
+            const y = this.rsCalYear, m = this.rsCalMonth
+            const today    = new Date().toLocaleString("en-CA").slice(0, 10) // localized robust slice
+            const firstDay = new Date(y, m, 1).getDay()
+            const daysInMo = new Date(y, m + 1, 0).getDate()
+            const cells    = []
+            for (let i = 0; i < firstDay; i++) cells.push(null)
+            for (let d = 1; d <= daysInMo; d++) {
+                const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+                cells.push({ day: d, dateStr, isToday: dateStr === today, isPast: dateStr < today })
+            }
+            return cells
+        },
+        rsAllSlots() {
+            const unique = [...new Set(this.rsSlotData.map(a => a.slot))]
+            return unique.sort((a, b) => this.parseSlotTime(a) - this.parseSlotTime(b))
         }
     },
     async mounted() {
-        if (!this.$root.user) {
-            this.$root.currentView = 'login-page'
-            return
-        }
+        if (!this.$root.user) { this.$root.currentView = 'login-page'; return }
         await this.fetchDepartments()
         await this.fetchAppointments()
     },
     methods: {
-        clearAlerts() {
-            this.message = ''
-            this.error = ''
-        },
+        clearAlerts() { this.message = ''; this.error = '' },
+
+        dayOf(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00').getDate() : '—' },
+        monOf(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00').toLocaleString('en-IN', { month: 'short' }) : '' },
+
         async fetchDepartments() {
             try {
                 const res = await axios.get('/api/departments')
                 this.departments = res.data
-            } catch (error) {
-                this.error = error.response?.data?.error || 'Failed to load departments'
+            } catch (e) {
+                this.error = e.response?.data?.error || 'Failed to load departments'
             }
         },
         async fetchAppointments() {
             try {
                 const res = await axios.get(`/api/appointments/patient/${this.$root.user.user_id}`)
                 this.appointments = res.data
-            } catch (error) {
-                this.error = error.response?.data?.error || 'Failed to load appointments'
+            } catch (e) {
+                this.error = e.response?.data?.error || 'Failed to load appointments'
             }
         },
         async searchDoctors() {
             this.clearAlerts()
             const q = this.searchQuery.trim()
-
-            if (!q) {
-                this.searchResults = []
-                return
-            }
-
+            if (!q) { this.searchResults = []; return }
             try {
                 const res = await axios.get(`/api/search/doctors?q=${encodeURIComponent(q)}`)
                 this.searchResults = res.data
-            } catch (error) {
-                this.error = error.response?.data?.error || 'Search failed'
+            } catch (e) {
+                this.error = e.response?.data?.error || 'Search failed'
             }
         },
         openDept(d) {
@@ -726,54 +864,114 @@ app.component('patient-dashboard', {
             this.$root.selectedDoctor = doc
             this.$root.currentView = 'doctor-page'
         },
+
+        /* ========================================================
+           RESCHEDULE LOGIC (Updated to work with the Modal Picker)
+           ======================================================== */
         async openReschedule(a) {
             this.clearAlerts()
             this.selected = a
-            this.form = { date: '', slot: '' }
-            this.rescheduleSlots = []
             this.rescheduleMode = true
+            
+            // Reset Date and Slot states
+            this.rsSelectedDate = null
+            this.rsSelectedSlot = null
+            
+            // Sync calendar to current month
+            const now = new Date()
+            this.rsCalYear = now.getFullYear()
+            this.rsCalMonth = now.getMonth()
 
             try {
-                const doctorId = a.doctor_id || this.appointments.find(
-                    x => x.doctor_name === a.doctor_name
-                )?.doctor_id
-
-                if (!doctorId) {
-                    this.error = 'Could not find doctor info for rescheduling'
-                    return
-                }
-
-                const res = await axios.get(`/api/doctor/availability/${doctorId}`)
-                this.rescheduleSlots = res.data.map(s => ({
-                    date: s.date,
-                    slot: s.slot
-                }))
+                const res = await axios.get(`/api/doctor/availability/${a.doctor_id}`)
+                
+                // Normalizes slots (Handles hyphens, en-dashes, AND no-spaces robustly)
+                const norm = s => s.replace(/\s*[-–—]\s*/g, ' - ').replace(/\s+/g, ' ').trim()
+                
+                this.rsSlotData  = res.data.map(x => ({ ...x, slot: norm(x.slot) }))
+                this.rsAvailable = res.data.map(x => ({ date: x.date, slot: norm(x.slot) }))
+                
             } catch (e) {
                 this.error = 'Failed to load available slots'
             }
         },
-
         closeReschedule() {
             this.selected = null
             this.rescheduleMode = false
-            this.form = { date: '', slot: '' }
+            this.rsSelectedDate = null
+            this.rsSelectedSlot = null
+            this.rsSlotData = []
+            this.rsAvailable = []
+        },
+        rsSelectDate(cell) {
+            if (cell.isPast) return
+            this.rsSelectedDate = cell.dateStr
+            this.rsSelectedSlot = null
+        },
+        rsIsAvailable(slot) {
+            return this.rsAvailable.some(a => a.date === this.rsSelectedDate && a.slot === slot)
+        },
+        rsSelectSlot(slot) {
+            if (!this.rsIsAvailable(slot)) return
+            this.rsSelectedSlot = this.rsSelectedSlot === slot ? null : slot
+        },
+        rsSlotBtnClass(slot) {
+            if (this.rsSelectedSlot === slot) return 'avail-slot-btn--saved'
+            if (this.rsIsAvailable(slot))     return 'avail-slot-btn--selected'
+            return ''
+        },
+        rsPrevMonth() {
+            if (this.rsCalMonth === 0) { this.rsCalMonth = 11; this.rsCalYear-- } else this.rsCalMonth--
+        },
+        rsNextMonth() {
+            if (this.rsCalMonth === 11) { this.rsCalMonth = 0; this.rsCalYear++ } else this.rsCalMonth++
+        },
+        rsFormatDate(dateStr) {
+            return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-IN', {
+                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+            })
+        },
+        parseSlotTime(slot) {
+            try {
+                // Highly robust slot parsing preventing Vue crashes
+                const start = slot.split('-')[0].trim();
+                let time = start.split(' ')[0] || start;
+                let period = start.replace(time, '').trim().toUpperCase();
+                if (time.toUpperCase().endsWith('AM') || time.toUpperCase().endsWith('PM')) {
+                     period = time.slice(-2).toUpperCase();
+                     time = time.slice(0, -2);
+                }
+                let [hStr, mStr] = time.split(':');
+                let h = parseInt(hStr || "0", 10);
+                let m = parseInt(mStr || "0", 10);
+                
+                if (period === 'PM' && h !== 12) h += 12;
+                if (period === 'AM' && h === 12) h = 0;
+                return (h * 60) + m;
+            } catch(e) {
+                return 0; // Prevent crash if badly formatted slot exists
+            }
         },
         async confirmReschedule() {
             this.clearAlerts()
+            if (!this.rsSelectedDate || !this.rsSelectedSlot) {
+                this.error = 'Please select a date and slot'
+                return
+            }
             try {
-                await axios.put(`/api/appointment/reschedule/${this.selected.id}`, {
-                    user_id: this.$root.user.user_id,
-                    date: this.form.date,
-                    slot: this.form.slot
-                })
+                await axios.put(
+                    `/api/appointment/reschedule/${this.selected.id}`,
+                    { user_id: this.$root.user.user_id, date: this.rsSelectedDate, slot: this.rsSelectedSlot }
+                )
                 this.message = 'Appointment rescheduled successfully'
                 this.closeReschedule()
                 await this.fetchAppointments()
-            } catch (error) {
-                this.error = error.response?.data?.error || 'Failed to reschedule appointment'
+            } catch (e) {
+                this.error = e.response?.data?.error || 'Failed to reschedule'
             }
         },
         async cancelAppointment(id) {
+            if (!confirm('Cancel this appointment?')) return
             this.clearAlerts()
             try {
                 await axios.delete(`/api/appointment/${id}`, {
@@ -781,13 +979,18 @@ app.component('patient-dashboard', {
                 })
                 this.message = 'Appointment cancelled successfully'
                 await this.fetchAppointments()
-            } catch (error) {
-                this.error = error.response?.data?.error || 'Failed to cancel appointment'
+            } catch (e) {
+                this.error = e.response?.data?.error || 'Failed to cancel'
             }
+        },
+        fmtDate(d) {
+            if (!d) return '—'
+            return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', {
+                day: '2-digit', month: 'short', year: 'numeric'
+            })
         }
     }
-})
-
+});
 
 /* =========================================================
    DEPARTMENT PAGE
@@ -864,44 +1067,107 @@ app.component('department-page', {
 
 
 /* =========================================================
-   DOCTOR PAGE
+   DOCTOR PAGE (Details)
 ========================================================= */
 app.component('doctor-page', {
     template: `
     <div class="patient-shell">
         <patient-navbar></patient-navbar>
-
-        <div class="patient-main">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <h3 class="patient-page-title mb-0">Doctor Details</h3>
-                <button class="patient-btn-outline" @click="$root.currentView='department-page'">Back</button>
-            </div>
-
-            <div class="patient-section-card">
-                <div class="row g-4 align-items-start">
-                    <div class="col-md-3 text-center">
-                        <img
-                            :src="doctor.photo ? ('/static/uploads/' + doctor.photo) : '/static/images/default-doctor.png'"
-                            alt="Doctor Photo"
-                            class="img-fluid rounded-4 border"
-                            style="max-height:220px; object-fit:cover;"
-                        >
-                    </div>
-
-                    <div class="col-md-9">
-                        <h4 class="mb-3">Dr. {{ doctor.name }}</h4>
-                        <p><strong>Department:</strong> {{ doctor.department || '-' }}</p>
-                        <p><strong>Specialization:</strong> {{ doctor.specialization || '-' }}</p>
-                        <p><strong>Qualification:</strong> {{ doctor.qualification || '-' }}</p>
-                        <p><strong>Experience:</strong> {{ doctor.experience || '-' }}</p>
-                        <p><strong>Consultation Fee:</strong> ₹{{ doctor.fee || 0 }}</p>
-                        <p><strong>Phone:</strong> {{ doctor.phone || '-' }}</p>
-                        <p><strong>Email:</strong> {{ doctor.email || '-' }}</p>
-                        <p><strong>Bio:</strong> {{ doctor.bio || '-' }}</p>
-
-                        <button class="patient-btn-primary mt-2" @click="go">
-                            View Availability
-                        </button>
+        <div class="patient-main" style="display:flex; flex-direction:column; align-items:center; padding: 40px 20px;">
+            
+            <div style="width: 100%; max-width: 950px; margin: 0 auto;">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="patient-page-title mb-0">Doctor Details</h3>
+                    <button class="patient-btn-outline" @click="$root.currentView='department-page'">
+                        <i class="bi bi-arrow-left me-1"></i> Back
+                    </button>
+                </div>
+                <div class="patient-section-card shadow-lg" style="border:none; border-radius:24px; overflow:hidden; padding:0;">
+                    <div class="row g-0">
+                        <!-- Left Side: Photo & Accent Background -->
+                        <div class="col-md-5 p-5 text-center d-flex flex-column align-items-center justify-content-center" style="background: linear-gradient(135deg, rgba(13,148,136,0.04), rgba(79,209,197,0.12)); border-right: 1px solid #f8fafc;">
+                            
+                            <div class="position-relative mb-4 mt-2">
+                                <div class="position-absolute w-100 h-100 rounded-circle" style="background:#0d9488; opacity:0.1; transform: scale(1.15);"></div>
+                                <img 
+                                    :src="doctor.photo && doctor.photo !== 'default_doctor.png' ? ('/static/uploads/' + doctor.photo) : '/static/images/default-doctor.png'" 
+                                    alt="Doctor Photo" 
+                                    class="img-fluid rounded-circle shadow-sm position-relative" 
+                                    style="width: 170px; height: 170px; object-fit: cover; border: 4px solid #ffffff;"
+                                >
+                            </div>
+                            
+                            <h4 class="mb-1 mt-3" style="font-weight:800; color:#1e293b;">Dr. {{ doctor.name || 'Loading...' }}</h4>
+                            <div class="badge bg-light text-teal px-4 py-2 mt-2 rounded-pill shadow-sm" style="font-size:0.85rem; font-weight:700; color:#0d9488; border:1px solid rgba(13,148,136,0.2);">
+                                {{ doctor.department || '-' }}
+                            </div>
+                            
+                            <div class="mt-5 mb-2 w-100">
+                                <button class="patient-btn-primary w-100 py-3 shadow-sm" style="border-radius:12px; font-weight:700; font-size:1.05rem;" @click="go">
+                                    <i class="bi bi-calendar-check me-2"></i> View Availability
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Right Side: Info Tiles container -->
+                        <div class="col-md-7 p-5">
+                            <h5 class="mb-4" style="color:#475569; font-weight:700;">Professional Overview</h5>
+                            
+                            <div class="row g-3">
+                                <!-- Tile -->
+                                <div class="col-sm-6">
+                                    <div class="p-3 rounded-4" style="background:#f8fafc; border:1px solid #f1f5f9; height:100%;">
+                                        <div class="text-muted mb-1" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:700;">Specialization</div>
+                                        <div style="font-weight:600; color:#0f172a; font-size:0.95rem;">{{ doctor.specialization || '-' }}</div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Tile -->
+                                <div class="col-sm-6">
+                                    <div class="p-3 rounded-4" style="background:#f8fafc; border:1px solid #f1f5f9; height:100%;">
+                                        <div class="text-muted mb-1" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:700;">Qualification</div>
+                                        <div style="font-weight:600; color:#0f172a; font-size:0.95rem;">{{ doctor.qualification || '-' }}</div>
+                                    </div>
+                                </div>
+                                <!-- Tile -->
+                                <div class="col-sm-6">
+                                    <div class="p-3 rounded-4" style="background:#f8fafc; border:1px solid #f1f5f9; height:100%;">
+                                        <div class="text-muted mb-1" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:700;">Experience</div>
+                                        <div style="font-weight:600; color:#0f172a; font-size:0.95rem;">{{ doctor.experience || '-' }}</div>
+                                    </div>
+                                </div>
+                                <!-- Specialty Tile for Fee -->
+                                <div class="col-sm-6">
+                                    <div class="p-3 rounded-4 shadow-sm" style="background:#f0fdf4; border:1px solid #dcfce7; height:100%;">
+                                        <div class="text-muted mb-1" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:700; color:#166534!important;">Consultation Fee</div>
+                                        <div style="font-weight:800; color:#15803d; font-size:1.15rem;">₹{{ doctor.fee || 0 }}</div>
+                                    </div>
+                                </div>
+                                <div class="col-12 mt-4 pt-2">
+                                    <h5 class="mb-3" style="color:#475569; font-weight:700;">Contact Options</h5>
+                                </div>
+                                <!-- Tile -->
+                                <div class="col-sm-6">
+                                    <div class="p-3 rounded-4 d-flex align-items-center" style="background:#f8fafc; border:1px solid #f1f5f9;">
+                                        <i class="bi bi-telephone-fill p-2 rounded-circle me-3 d-flex align-items-center justify-content-center" style="background:rgba(13,148,136,0.1); color:#0d9488; font-size:1.1rem; width:40px; height:40px;"></i>
+                                        <span style="font-weight:600; color:#0f172a; font-size:0.95rem;">{{ doctor.phone || '-' }}</span>
+                                    </div>
+                                </div>
+                                <!-- Tile -->
+                                <div class="col-sm-6">
+                                    <div class="p-3 rounded-4 d-flex align-items-center" style="background:#f8fafc; border:1px solid #f1f5f9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" :title="doctor.email">
+                                        <i class="bi bi-envelope-fill p-2 rounded-circle me-3 d-flex align-items-center justify-content-center" style="background:rgba(13,148,136,0.1); color:#0d9488; font-size:1.1rem; width:40px; height:40px;"></i>
+                                        <span style="font-weight:600; color:#0f172a; font-size:0.95rem; overflow:hidden; text-overflow:ellipsis;">{{ doctor.email || '-' }}</span>
+                                    </div>
+                                </div>
+                                <!-- Long Tile for Bio -->
+                                <div v-if="doctor.bio" class="col-12 mt-4">
+                                    <div class="p-4 rounded-4" style="background:#f8fafc; border:1px solid #f1f5f9; border-left: 4px solid #0d9488;">
+                                        <div class="text-muted mb-2" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:700;">Biography</div>
+                                        <p class="mb-0" style="color:#334155; line-height:1.6; font-size:0.95rem;">{{ doctor.bio }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -918,12 +1184,10 @@ app.component('doctor-page', {
             this.$root.currentView = 'login-page'
             return
         }
-
         if (!this.$root.selectedDoctor) {
             this.$root.currentView = 'patient-dashboard'
             return
         }
-
         try {
             const res = await axios.get(`/api/doctor/${this.$root.selectedDoctor.id}`)
             this.doctor = res.data
@@ -939,151 +1203,323 @@ app.component('doctor-page', {
     }
 })
 
-
 /* =========================================================
    AVAILABILITY PAGE
 ========================================================= */
 app.component('availability-page', {
     template: `
-    <div class="patient-shell">
+    <div class="appt-page">
         <patient-navbar></patient-navbar>
 
+        <!-- Hero Card -->
+        <div class="patient-main" style="padding-bottom:0;">
+            <div class="appt-hero">
+                <div class="appt-hero-left">
+                    <h1 class="appt-hero-title">
+                        <span v-for="(word, i) in ['Appointment', 'Booking']"
+                              :key="i" class="animated-word"
+                              :style="{ animationDelay: (i * 0.22) + 's' }">
+                            {{ word }}&nbsp;
+                        </span>
+                    </h1>
+                    <p class="appt-hero-sub" :class="{ 'sub-visible': subVisible }">
+                        Schedule your appointment at your convenience.<br>
+                        We're ready when you are.
+                    </p>
+                </div>
+                <div class="appt-hero-right">
+                    <img src="/static/images/appt.png" alt="Appointment">
+                </div>
+            </div>
+        </div>
+
+        <!-- Booking Content -->
         <div class="patient-main">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <h3 class="patient-page-title mb-0">Doctor Availability</h3>
-                <button class="patient-btn-outline" @click="$root.currentView='doctor-page'">Back</button>
+
+            <!-- Doctor info + Back -->
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div>
+                    <h5 class="mb-0 fw-bold" style="color:#0f766e">
+                        Dr. {{ $root.selectedDoctor && $root.selectedDoctor.name }}
+                    </h5>
+                    <small style="color:#6b7280">
+                        {{ $root.selectedDoctor && $root.selectedDoctor.specialization }}
+                        — Pick one or more slots, then confirm
+                    </small>
+                </div>
+                <button class="patient-btn-outline" @click="$root.currentView='doctor-page'">← Back</button>
             </div>
 
-            <div v-if="message" class="alert alert-success">{{ message }}</div>
-            <div v-if="error" class="alert alert-danger">{{ error }}</div>
+            <div v-if="message" class="alert alert-success rounded-3">{{ message }}</div>
+            <div v-if="error"   class="alert alert-danger rounded-3">{{ error }}</div>
 
-            <div class="patient-section-card">
-                <div class="patient-subtitle">Available Slots for Next 7 Days</div>
+            <!-- Picker Card -->
+            <div class="avail-picker-card">
 
-                <div class="patient-table-wrap" v-if="days.length && slots.length">
-                    <table class="patient-table text-center">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th v-for="s in slots" :key="s">{{ s }}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="d in days" :key="d">
-                                <td><strong>{{ d }}</strong></td>
-                                <td v-for="s in slots" :key="d + '-' + s">
-                                    <div
-                                        class="patient-slot-box"
-                                        :class="slotClass(d, s)"
-                                        @click="toggle(d, s)"
-                                    >
-                                        {{ available.includes(d + '||' + s) ? s : '—' }}
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- LEFT: Calendar -->
+                <div class="avail-calendar">
+                    <div class="avail-cal-header">
+                        <button class="avail-cal-nav" @click="prevMonth"
+                                :disabled="calYear === nowYear && calMonth === nowMonth">‹</button>
+                        <span class="avail-cal-month">{{ calMonthLabel }}</span>
+                        <button class="avail-cal-nav" @click="nextMonth">›</button>
+                    </div>
+
+                    <div class="avail-cal-grid">
+                        <div v-for="d in ['Su','Mo','Tu','We','Th','Fr','Sa']"
+                             :key="d" class="avail-cal-dow">{{ d }}</div>
+
+                        <button v-for="(cell, i) in calDays" :key="i"
+                                class="avail-cal-day"
+                                :class="{
+                                    'avail-cal-day--selected': cell && cell.dateStr === selectedDate,
+                                    'avail-cal-day--today':    cell && cell.isToday,
+                                    'avail-cal-day--disabled': !cell || cell.isPast
+                                }"
+                                :disabled="!cell || cell.isPast"
+                                @click="cell && !cell.isPast && selectDate(cell)">
+                            {{ cell ? cell.day : '' }}
+                        </button>
+                    </div>
                 </div>
 
-                <div v-else class="patient-empty">No availability for the next 7 days.</div>
+                <!-- DIVIDER -->
+                <div class="avail-divider"></div>
 
-                <div v-if="selected.length" class="mt-3">
-                    <label class="fw-semibold mb-1">Describe your symptoms (optional)</label>
-                    <textarea
-                        v-model="symptoms"
-                        class="form-control patient-form-control mb-3"
-                        rows="3"
-                        placeholder="e.g. headache, fever since 2 days, body pain..."
-                    ></textarea>
+                <!-- RIGHT: Slots Panel -->
+                <div class="avail-slots-panel">
+                    <div class="avail-slots-date">
+                        {{ selectedDate ? formatDateLabel(selectedDate) : 'Select a date' }}
+                    </div>
+
+                    <div class="avail-slots-list" v-if="selectedDate && allSlots.length">
+                        <button v-for="slot in allSlots" :key="slot"
+                                class="avail-slot-btn"
+                                :class="slotBtnClass(slot)"
+                                :disabled="!isAvailable(slot)"
+                                @click="isAvailable(slot) && toggleSlot(slot)">
+                            <span v-if="isChosen(slot)">✓ </span>
+                            {{ slot }}
+                            <span v-if="isChosen(slot)"
+                                  style="font-size:0.78em;margin-left:6px;opacity:0.9;">Selected</span>
+                        </button>
+                    </div>
+
+                    <div v-else-if="!selectedDate" class="avail-slots-date"
+                         style="color:#94a3b8;margin-top:2rem;font-size:0.9rem;">
+                        ← Select a date from the calendar
+                    </div>
+
+                    <div v-else class="avail-slots-date"
+                         style="color:#94a3b8;margin-top:2rem;font-size:0.9rem;">
+                        No slots available for this date
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Selected Slots Summary + Confirm ── -->
+            <div v-if="selectedSlots.length" class="patient-section-card mt-3">
+                <div class="patient-subtitle mb-3">
+                    Selected Slots ({{ selectedSlots.length }})
                 </div>
 
-                <div class="mt-3">
-                    <button class="patient-btn-primary" @click="book" :disabled="selected.length === 0">
-                        Book Appointment
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <div v-for="(s, i) in selectedSlots" :key="i"
+                         style="display:flex;align-items:center;gap:0.5rem;
+                                background:linear-gradient(135deg,#2563eb,#1d4ed8);
+                                color:#fff;border-radius:20px;padding:0.3rem 0.85rem;
+                                font-size:0.82rem;font-weight:600;">
+                        {{ s.date }} · {{ s.slot }}
+                        <span @click="removeSlot(i)"
+                              style="cursor:pointer;opacity:0.8;font-size:1rem;line-height:1;">✕</span>
+                    </div>
+                </div>
+
+                <label class="fw-semibold mb-1" style="color:#0f766e;font-size:0.88rem;">
+                    Describe your symptoms (optional)
+                </label>
+                <textarea v-model="symptoms"
+                          class="form-control patient-form-control mb-3"
+                          rows="2"
+                          placeholder="e.g. headache, fever since 2 days..."></textarea>
+
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <button class="avail-slot-btn"
+                            style="background:linear-gradient(135deg,#5bbf9c,#48a985);
+                                   border-color:#48a985;color:#fff;width:auto;
+                                   padding:12px 28px;font-size:0.92rem;"
+                            @click="book">
+                        Confirm {{ selectedSlots.length }} Booking{{ selectedSlots.length > 1 ? 's' : '' }}
+                    </button>
+                    <button class="patient-btn-outline" @click="selectedSlots = []">
+                        Clear All
                     </button>
                 </div>
-
             </div>
+
         </div>
     </div>
     `,
+
     data() {
+        const now = new Date()
         return {
-            days: [],
-            slots: [],
-            available: [],
-            selected: [],
-            symptoms: '',
-            message: '',
-            error: ''
+            allSlotData:   [],   // full API response (available + booked)
+            allAvailable:  [],   // only truly bookable slots
+            selectedDate:  null,
+            selectedSlots: [],   // [{date, slot}] — multi-select
+            symptoms:      '',
+            subVisible:    false,
+            message:       '',
+            error:         '',
+            calYear:  now.getFullYear(),
+            calMonth: now.getMonth(),
+            nowYear:  now.getFullYear(),
+            nowMonth: now.getMonth()
         }
     },
+
+    computed: {
+        availableDates() {
+            return [...new Set(this.allAvailable.map(a => a.date))]
+        },
+        allSlots() {
+            // All unique slots across ALL dates (so missing slots show as unavailable)
+            const unique = [...new Set(this.allSlotData.map(a => a.slot))]
+            return unique.sort((a, b) => this.parseSlotTime(a) - this.parseSlotTime(b))
+        },
+        calMonthLabel() {
+            return new Date(this.calYear, this.calMonth, 1)
+                .toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+        },
+        calDays() {
+            const y        = this.calYear
+            const m        = this.calMonth
+            const today    = new Date().toISOString().slice(0, 10)
+            const firstDay = new Date(y, m, 1).getDay()
+            const daysInMo = new Date(y, m + 1, 0).getDate()
+            const cells    = []
+            for (let i = 0; i < firstDay; i++) cells.push(null)
+            for (let d = 1; d <= daysInMo; d++) {
+                const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+                cells.push({
+                    day:      d,
+                    dateStr,
+                    isToday:  dateStr === today,
+                    hasSlots: this.availableDates.includes(dateStr),
+                    isPast:   dateStr < today
+                })
+            }
+            return cells
+        }
+    },
+
     async mounted() {
-        if (!this.$root.user) {
-            this.$root.currentView = 'login-page'
-            return
-        }
-
-        if (!this.$root.selectedDoctor) {
-            this.$root.currentView = 'patient-dashboard'
-            return
-        }
-
+        if (!this.$root.user)           { this.$root.currentView = 'login-page';        return }
+        if (!this.$root.selectedDoctor) { this.$root.currentView = 'patient-dashboard'; return }
+        setTimeout(() => { this.subVisible = true }, 900)
         await this.fetchAvailability()
     },
+
     methods: {
         async fetchAvailability() {
-            this.message = ''
             this.error = ''
-
             try {
-                const res = await axios.get(`/api/doctor/availability/${this.$root.selectedDoctor.id}`)
-                this.available = res.data.map(a => `${a.date}||${a.slot}`)
-                this.days = [...new Set(res.data.map(a => a.date))]
-                this.slots = [...new Set(res.data.map(a => a.slot))]
-            } catch (error) {
-                this.error = error.response?.data?.error || 'Failed to load availability'
+                const res = await axios.get(
+                    `/api/doctor/availability/${this.$root.selectedDoctor.id}`
+                )
+                const normalize = s => s
+                                    .replace(/\s*[–—\u2013\u2014]\s*/g, ' - ')
+                                    .replace(/\s+/g, ' ')
+                                    .trim()
+                                this.allSlotData = res.data.map(a => ({ ...a, slot: 
+                normalize(a.slot) }))
+                                this.allAvailable = res.data
+                                    .filter(a => !a.is_booked)
+                                    .map(a => ({ date: a.date, slot: normalize(a.slot) }))
+            } catch (e) {
+                this.error = e.response?.data?.error || 'Failed to load availability'
             }
         },
-        slotClass(d, s) {
-            const k = `${d}||${s}`
-            if (this.selected.includes(k)) return 'selected'
-            if (this.available.includes(k)) return 'available'
-            return 'unavailable'
-        },
-        toggle(d, s) {
-            const k = `${d}||${s}`
-            if (!this.available.includes(k)) return
 
-            if (this.selected.includes(k)) {
-                this.selected = []
+        selectDate(cell) {
+            if (cell.isPast) return
+            this.selectedDate = cell.dateStr
+        },
+
+        isAvailable(slot) {
+            return this.allAvailable.some(
+                a => a.date === this.selectedDate && a.slot === slot
+            )
+        },
+
+        isChosen(slot) {
+            return this.selectedSlots.some(
+                s => s.date === this.selectedDate && s.slot === slot
+            )
+        },
+
+        toggleSlot(slot) {
+            if (!this.isAvailable(slot)) return
+            const idx = this.selectedSlots.findIndex(
+                s => s.date === this.selectedDate && s.slot === slot
+            )
+            if (idx >= 0) {
+                this.selectedSlots.splice(idx, 1)
             } else {
-                this.selected = [k]
+                this.selectedSlots.push({ date: this.selectedDate, slot })
             }
         },
+
+        removeSlot(i) {
+            this.selectedSlots.splice(i, 1)
+        },
+
+        slotBtnClass(slot) {
+            if (this.isChosen(slot))    return 'avail-slot-btn--saved'
+            if (this.isAvailable(slot)) return 'avail-slot-btn--selected'
+            return ''
+        },
+
+        parseSlotTime(slot) {
+            const start = slot.split(' - ')[0].trim()
+            const [time, period] = start.split(' ')
+            let [h, m] = time.split(':').map(Number)
+            if (period === 'PM' && h !== 12) h += 12
+            if (period === 'AM' && h === 12) h = 0
+            return h * 60 + m
+        },
+
+        prevMonth() {
+            if (this.calMonth === 0) { this.calMonth = 11; this.calYear-- }
+            else this.calMonth--
+        },
+        nextMonth() {
+            if (this.calMonth === 11) { this.calMonth = 0; this.calYear++ }
+            else this.calMonth++
+        },
+
+        formatDateLabel(dateStr) {
+            return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-IN', {
+                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+            })
+        },
+
         async book() {
             this.message = ''
-            this.error = ''
-
-            if (!this.selected.length) {
-                this.error = 'Please select a slot first'
-                return
-            }
-
+            this.error   = ''
+            if (!this.selectedSlots.length) { this.error = 'Please select at least one slot'; return }
             try {
                 await axios.post('/api/book', {
-                    doctor_id: this.$root.selectedDoctor.id,
+                    doctor_id:  this.$root.selectedDoctor.id,
                     patient_id: this.$root.user.user_id,
-                    slots: this.selected,
-                    symptoms: this.symptoms.trim()
+                    slots:      this.selectedSlots.map(s => `${s.date}||${s.slot}`),
+                    symptoms:   this.symptoms.trim()
                 })
-
-                this.message = 'Appointment booked successfully'
-                setTimeout(() => {
-                    this.$root.currentView = 'patient-dashboard'
-                }, 800)
-            } catch (error) {
-                this.error = error.response?.data?.error || 'Booking failed'
+                this.message = `${this.selectedSlots.length} appointment${this.selectedSlots.length > 1 ? 's' : ''} booked successfully!`
+                setTimeout(() => { this.$root.currentView = 'patient-dashboard' }, 1200)
+            } catch (e) {
+                this.error = e.response?.data?.error || 'Booking failed'
             }
         }
     }
@@ -1206,50 +1642,71 @@ app.component('edit-profile-page', {
     <div class="patient-shell">
         <patient-navbar></patient-navbar>
 
-        <div class="patient-main">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <h3 class="patient-page-title mb-0">Edit Profile</h3>
-                <button class="patient-btn-outline" @click="$root.currentView='patient-dashboard'">Back</button>
-            </div>
+        <div class="patient-main" style="display:flex; flex-direction:column; align-items:center; padding: 40px 20px;">
 
-            <div v-if="message" class="alert alert-success">{{ message }}</div>
-            <div v-if="error" class="alert alert-danger">{{ error }}</div>
-
-            <div class="patient-section-card">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Name</label>
-                        <input v-model="form.name" class="form-control patient-form-control" placeholder="Enter your name">
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Email</label>
-                        <input v-model="form.email" class="form-control patient-form-control" placeholder="Enter your email">
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Phone</label>
-                        <input v-model="form.phone" class="form-control patient-form-control" placeholder="Enter your phone">
-                    </div>
-
-                    <div class="col-md-3">
-                        <label class="form-label fw-semibold">Gender</label>
-                        <select v-model="form.gender" class="form-control patient-form-control">
-                            <option value="">Select</option>
-                            <option>Male</option>
-                            <option>Female</option>
-                            <option>Other</option>
-                        </select>
-                    </div>
-
-                    <div class="col-md-3">
-                        <label class="form-label fw-semibold">Age</label>
-                        <input v-model="form.age" type="number" class="form-control patient-form-control" placeholder="Age">
-                    </div>
+            <div class="patient-edit-wrapper">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="patient-page-title mb-0">Edit Profile</h3>
+                    <button class="patient-btn-outline" @click="$root.currentView='patient-dashboard'">
+                        <i class="bi bi-arrow-left me-1"></i> Back
+                    </button>
                 </div>
 
-                <div class="mt-3">
-                    <button class="patient-btn-primary" @click="save">Save Changes</button>
+                <div v-if="message" class="alert alert-success rounded-3 mb-4 shadow-sm border-0" style="background:#f0fdf4; color:#166534;">
+                    <i class="bi bi-check-circle-fill me-2"></i>{{ message }}
+                </div>
+                <div v-if="error" class="alert alert-danger rounded-3 mb-4 shadow-sm border-0" style="background:#fef2f2; color:#991b1b;">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ error }}
+                </div>
+
+                <div class="patient-section-card patient-edit-card shadow-lg" style="border:none; border-radius:24px; padding: 40px;">
+                    
+                    <!-- Avatar Top -->
+                    <div class="patient-edit-avatar-wrapper text-center mb-5">
+                        <div class="patient-edit-avatar mx-auto shadow-sm">
+                            {{ initials }}
+                        </div>
+                        <h4 class="patient-edit-username mt-3 mb-1">{{ form.name || 'Your Name' }}</h4>
+                        <div class="patient-edit-email text-muted">{{ form.email || 'Email Address' }}</div>
+                    </div>
+
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-muted mb-2" style="font-size:0.9rem;">Full Name</label>
+                            <input v-model="form.name" class="form-control patient-form-control" style="border-radius:12px; padding:12px 18px; background:#f8fafc;" placeholder="Enter your name">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-muted mb-2" style="font-size:0.9rem;">Email Address</label>
+                            <input v-model="form.email" class="form-control patient-form-control" style="border-radius:12px; padding:12px 18px; background:#f8fafc;" placeholder="Enter your email">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-muted mb-2" style="font-size:0.9rem;">Phone Number</label>
+                            <input v-model="form.phone" class="form-control patient-form-control" style="border-radius:12px; padding:12px 18px; background:#f8fafc;" placeholder="Enter your phone">
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold text-muted mb-2" style="font-size:0.9rem;">Gender</label>
+                            <select v-model="form.gender" class="form-control patient-form-control" style="border-radius:12px; padding:12px 18px; background:#f8fafc;">
+                                <option value="">Select</option>
+                                <option>Male</option>
+                                <option>Female</option>
+                                <option>Other</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold text-muted mb-2" style="font-size:0.9rem;">Age</label>
+                            <input v-model="form.age" type="number" class="form-control patient-form-control" style="border-radius:12px; padding:12px 18px; background:#f8fafc;" placeholder="Age">
+                        </div>
+                    </div>
+
+                    <div class="mt-5 text-center">
+                        <button class="patient-btn-primary px-5 py-3 shadow-sm" style="border-radius:12px; font-weight:700; font-size:1.05rem;" @click="save">
+                            <i class="bi bi-person-check-fill me-2"></i> Save Changes
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1258,14 +1715,18 @@ app.component('edit-profile-page', {
     data() {
         return {
             form: {
-                name: '',
-                email: '',
-                phone: '',
-                gender: '',
-                age: ''
+                name: '', email: '', phone: '', gender: '', age: ''
             },
             message: '',
             error: ''
+        }
+    },
+    computed: {
+        initials() {
+            if (!this.form.name) return 'U';
+            const parts = this.form.name.trim().split(' ');
+            if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+            return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
         }
     },
     async mounted() {
@@ -1273,7 +1734,6 @@ app.component('edit-profile-page', {
             this.$root.currentView = 'login-page'
             return
         }
-
         try {
             const res = await axios.get(`/api/patient/${this.$root.user.user_id}`)
             this.form = res.data
@@ -1285,13 +1745,10 @@ app.component('edit-profile-page', {
         async save() {
             this.message = ''
             this.error = ''
-
             try {
                 await axios.put(`/api/patient/${this.$root.user.user_id}`, this.form)
-                this.$root.user.name  = this.form.name
-                this.$root.user.email = this.form.email
                 this.message = 'Profile updated successfully'
-
+                this.$root.user.name = this.form.name;
             } catch (error) {
                 this.error = error.response?.data?.error || 'Failed to update profile'
             }
