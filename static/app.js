@@ -2514,7 +2514,7 @@ app.component('doctor-edit-profile', {
             window.scrollTo({ top: 0, behavior: 'smooth' });
             clearTimeout(this._errTimer);
             this._errTimer = setTimeout(() => { this.error = '' }, 2000);
-        },
+        },  
 
         async save() {
             if (!this.form.name.trim())
@@ -5535,4 +5535,4 @@ app.component('payment-page', {
     }
 })
 
-app.mount('#app')
+app.mount('#app')
