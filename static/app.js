@@ -577,29 +577,36 @@ app.component('patient-dashboard', {
             </div>
 
             <!-- Alerts -->
-            <div v-if="message" class="alert alert-success rounded-3 mb-3">
-                <i class="bi bi-check-circle me-2"></i>{{ message }}
-            </div>
-            <div v-if="error" class="alert alert-danger rounded-3 mb-3">
-                <i class="bi bi-exclamation-circle me-2"></i>{{ error }}
-            </div>
+            <transition name="admin-alert">
+                <div v-if="message" class="alert alert-success rounded-3 mb-3">
+                    <i class="bi bi-check-circle me-2"></i>{{ message }}
+                </div>
+            </transition>
+            <transition name="admin-alert">
+                <div v-if="error" class="alert alert-danger rounded-3 mb-3">
+                    <i class="bi bi-exclamation-circle me-2"></i>{{ error }}
+                </div>
+            </transition>
 
             <!-- ── Search ── -->
             <div class="patient-section-card">
                 <div class="pt-section-header">
                     <div class="patient-subtitle">
                         <i class="bi bi-search" style="color:#0d9488"></i>
-                        Find a Doctor
+                        Find a doctor or department
                     </div>
                 </div>
-                <div class="pt-search-wrap">
-                    <i class="bi bi-search pt-search-icon"></i>
-                    <input
-                        v-model="searchQuery"
-                        @input="searchDoctors"
-                        class="patient-search-input"
-                        placeholder="Search by doctor name or specialization…"
-                    >
+                <div class="d-flex gap-2 align-items-center">
+                    <div class="pt-search-wrap flex-grow-1 m-0">
+                        <i class="bi bi-search pt-search-icon"></i>
+                        <input
+                            v-model="searchQuery"
+                            @input="searchDoctors"
+                            class="patient-search-input"
+                            placeholder="Search by doctor name, specialization, or department…"
+                        >
+                    </div>
+                    <button class="patient-btn-primary" @click="searchDoctors">Search</button>
                 </div>
 
                 <!-- Search Results -->
@@ -696,7 +703,7 @@ app.component('patient-dashboard', {
                     <button class="patient-btn-outline" @click="closeReschedule">Close</button>
                 </div>
 
-                <div class="avail-picker-card reschedule-picker">
+                <div class="avail-picker-card reschedule-picker" style="margin: 0 auto;">
                     <!-- LEFT: Calendar -->
                     <div class="avail-calendar">
                         <div class="avail-cal-header">
@@ -814,17 +821,36 @@ app.component('patient-dashboard', {
             return cells
         },
         rsAllSlots() {
-            const unique = [...new Set(this.rsSlotData.map(a => a.slot))]
+            const predefined = ["8:00 - 10:00 a.m.", "10:00 - 12:00 p.m.", "2:00 - 4:00 p.m.", "4:00 - 6:00 p.m.", "6:00 - 8:00 p.m."];
+            const dbSlots = this.rsSlotData.map(a => a.slot);
+            const unique = [...new Set([...predefined, ...dbSlots])];
             return unique.sort((a, b) => this.parseSlotTime(a) - this.parseSlotTime(b))
         }
     },
     async mounted() {
         if (!this.$root.user) { this.$root.currentView = 'login-page'; return }
-        await this.fetchDepartments()
-        await this.fetchAppointments()
+        // Run independently so one failure doesn't block another
+        this.fetchDepartments()
+        this.fetchAppointments()
     },
     methods: {
-        clearAlerts() { this.message = ''; this.error = '' },
+        clearAlerts() {
+            this.message = ''; this.error = '';
+            clearTimeout(this._msgTimer);
+            clearTimeout(this._errTimer);
+        },
+        showSuccess(msg) {
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
+        },
+        showError(msg) {
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
+        },
 
         dayOf(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00').getDate() : '—' },
         monOf(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00').toLocaleString('en-IN', { month: 'short' }) : '' },
@@ -834,7 +860,7 @@ app.component('patient-dashboard', {
                 const res = await axios.get('/api/departments')
                 this.departments = res.data
             } catch (e) {
-                this.error = e.response?.data?.error || 'Failed to load departments'
+                this.showError(e.response?.data?.error || 'Failed to load departments')
             }
         },
         async fetchAppointments() {
@@ -842,7 +868,7 @@ app.component('patient-dashboard', {
                 const res = await axios.get(`/api/appointments/patient/${this.$root.user.user_id}`)
                 this.appointments = res.data
             } catch (e) {
-                this.error = e.response?.data?.error || 'Failed to load appointments'
+                this.showError(e.response?.data?.error || 'Failed to load appointments')
             }
         },
         async searchDoctors() {
@@ -932,30 +958,20 @@ app.component('patient-dashboard', {
             })
         },
         parseSlotTime(slot) {
-            try {
-                // Highly robust slot parsing preventing Vue crashes
-                const start = slot.split('-')[0].trim();
-                let time = start.split(' ')[0] || start;
-                let period = start.replace(time, '').trim().toUpperCase();
-                if (time.toUpperCase().endsWith('AM') || time.toUpperCase().endsWith('PM')) {
-                     period = time.slice(-2).toUpperCase();
-                     time = time.slice(0, -2);
-                }
-                let [hStr, mStr] = time.split(':');
-                let h = parseInt(hStr || "0", 10);
-                let m = parseInt(mStr || "0", 10);
-                
-                if (period === 'PM' && h !== 12) h += 12;
-                if (period === 'AM' && h === 12) h = 0;
-                return (h * 60) + m;
-            } catch(e) {
-                return 0; // Prevent crash if badly formatted slot exists
-            }
+            if (!slot) return 0;
+            const s = slot.toUpperCase();
+            const hourPart = s.split(':')[0];
+            let h = parseInt(hourPart, 10);
+            if (h >= 1 && h <= 7) h += 12; // 1-7 PM maps to 13-19
+            let m = 0;
+            const match = s.match(/:(\d+)/);
+            if (match) m = parseInt(match[1], 10);
+            return h * 60 + m;
         },
         async confirmReschedule() {
             this.clearAlerts()
             if (!this.rsSelectedDate || !this.rsSelectedSlot) {
-                this.error = 'Please select a date and slot'
+                this.showError('Please select a date and slot')
                 return
             }
             try {
@@ -963,11 +979,11 @@ app.component('patient-dashboard', {
                     `/api/appointment/reschedule/${this.selected.id}`,
                     { user_id: this.$root.user.user_id, date: this.rsSelectedDate, slot: this.rsSelectedSlot }
                 )
-                this.message = 'Appointment rescheduled successfully'
+                this.showSuccess('Appointment rescheduled successfully')
                 this.closeReschedule()
                 await this.fetchAppointments()
             } catch (e) {
-                this.error = e.response?.data?.error || 'Failed to reschedule'
+                this.showError(e.response?.data?.error || 'Failed to reschedule')
             }
         },
         async cancelAppointment(id) {
@@ -977,10 +993,10 @@ app.component('patient-dashboard', {
                 await axios.delete(`/api/appointment/${id}`, {
                     data: { user_id: this.$root.user.user_id }
                 })
-                this.message = 'Appointment cancelled successfully'
+                this.showSuccess('Appointment cancelled successfully')
                 await this.fetchAppointments()
             } catch (e) {
-                this.error = e.response?.data?.error || 'Failed to cancel'
+                this.showError(e.response?.data?.error || 'Failed to cancel')
             }
         },
         fmtDate(d) {
@@ -1090,7 +1106,7 @@ app.component('doctor-page', {
                             <div class="position-relative mb-4 mt-2">
                                 <div class="position-absolute w-100 h-100 rounded-circle" style="background:#0d9488; opacity:0.1; transform: scale(1.15);"></div>
                                 <img 
-                                    :src="doctor.photo && doctor.photo !== 'default_doctor.png' ? ('/static/uploads/' + doctor.photo) : '/static/images/default-doctor.png'" 
+                                    :src="doctor.photo || '/static/images/default-doctor.png'" 
                                     alt="Doctor Photo" 
                                     class="img-fluid rounded-circle shadow-sm position-relative" 
                                     style="width: 170px; height: 170px; object-fit: cover; border: 4px solid #ffffff;"
@@ -1250,8 +1266,12 @@ app.component('availability-page', {
                 <button class="patient-btn-outline" @click="$root.currentView='doctor-page'">← Back</button>
             </div>
 
-            <div v-if="message" class="alert alert-success rounded-3">{{ message }}</div>
-            <div v-if="error"   class="alert alert-danger rounded-3">{{ error }}</div>
+            <transition name="admin-alert">
+                <div v-if="message" class="alert alert-success rounded-3">{{ message }}</div>
+            </transition>
+            <transition name="admin-alert">
+                <div v-if="error"   class="alert alert-danger rounded-3">{{ error }}</div>
+            </transition>
 
             <!-- Picker Card -->
             <div class="avail-picker-card">
@@ -1384,8 +1404,10 @@ app.component('availability-page', {
             return [...new Set(this.allAvailable.map(a => a.date))]
         },
         allSlots() {
-            // All unique slots across ALL dates (so missing slots show as unavailable)
-            const unique = [...new Set(this.allSlotData.map(a => a.slot))]
+            // All unique slots across ALL dates, combined with predefined slots (so missing slots show as unavailable)
+            const predefined = ["8:00 - 10:00 a.m.", "10:00 - 12:00 p.m.", "2:00 - 4:00 p.m.", "4:00 - 6:00 p.m.", "6:00 - 8:00 p.m."];
+            const dbSlots = this.allSlotData.map(a => a.slot);
+            const unique = [...new Set([...predefined, ...dbSlots])];
             return unique.sort((a, b) => this.parseSlotTime(a) - this.parseSlotTime(b))
         },
         calMonthLabel() {
@@ -1438,8 +1460,21 @@ app.component('availability-page', {
                                     .filter(a => !a.is_booked)
                                     .map(a => ({ date: a.date, slot: normalize(a.slot) }))
             } catch (e) {
-                this.error = e.response?.data?.error || 'Failed to load availability'
+                this.showError(e.response?.data?.error || 'Failed to load availability')
             }
+        },
+
+        showSuccess(msg) {
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 3000);
+        },
+        showError(msg) {
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 3500);
         },
 
         selectDate(cell) {
@@ -1482,12 +1517,15 @@ app.component('availability-page', {
         },
 
         parseSlotTime(slot) {
-            const start = slot.split(' - ')[0].trim()
-            const [time, period] = start.split(' ')
-            let [h, m] = time.split(':').map(Number)
-            if (period === 'PM' && h !== 12) h += 12
-            if (period === 'AM' && h === 12) h = 0
-            return h * 60 + m
+            if (!slot) return 0;
+            const s = slot.toUpperCase();
+            const hourPart = s.split(':')[0];
+            let h = parseInt(hourPart, 10);
+            if (h >= 1 && h <= 7) h += 12; // 1-7 PM maps to 13-19
+            let m = 0;
+            const match = s.match(/:(\d+)/);
+            if (match) m = parseInt(match[1], 10);
+            return h * 60 + m;
         },
 
         prevMonth() {
@@ -1516,10 +1554,10 @@ app.component('availability-page', {
                     slots:      this.selectedSlots.map(s => `${s.date}||${s.slot}`),
                     symptoms:   this.symptoms.trim()
                 })
-                this.message = `${this.selectedSlots.length} appointment${this.selectedSlots.length > 1 ? 's' : ''} booked successfully!`
+                this.showSuccess(`${this.selectedSlots.length} appointment${this.selectedSlots.length > 1 ? 's' : ''} booked successfully!`)
                 setTimeout(() => { this.$root.currentView = 'patient-dashboard' }, 1200)
             } catch (e) {
-                this.error = e.response?.data?.error || 'Booking failed'
+                this.showError(e.response?.data?.error || 'Booking failed')
             }
         }
     }
@@ -1562,6 +1600,9 @@ app.component('history-page', {
                         <div class="mb-1"><strong>Prescription:</strong> {{ h.prescription || '-' }}</div>
                         <div class="mb-1"><strong>Medicines:</strong> {{ h.medicines || '-' }}</div>
                         <div><strong>Notes:</strong> {{ h.notes || '-' }}</div>
+                        <div class="mt-3 text-end">
+                            <button class="patient-btn-primary btn-sm" @click="$root.currentView='payment-page'">Pay for Treatment</button>
+                        </div>
                     </div>
                 </div>
 
@@ -1774,7 +1815,7 @@ app.component('doctor-navbar', {
         <div class="doc-sidebar-profile">
             <div class="doc-sidebar-avatar">
                 <img v-if="profile.photo"
-                    :src="profile.photo"
+                    :src="profile.photo.startsWith('/static/') || profile.photo.startsWith('http') ? profile.photo : ('/static/uploads/' + profile.photo)"
                     alt="Doctor photo"
                     @error="useDefaultPhoto">
                 <img v-else
@@ -2433,7 +2474,13 @@ app.component('doctor-edit-profile', {
             bio:            p.bio            || ''
         }
 
-        this.photoPreview = p.photo || '/static/images/default-doctor.png'
+        if (p.photo) {
+            this.photoPreview = (p.photo.startsWith('/static/') || p.photo.startsWith('http')) 
+                                ? p.photo 
+                                : ('/static/uploads/' + p.photo)
+        } else {
+            this.photoPreview = '/static/images/default-doctor.png'
+        }
     },
 
     beforeUnmount() {
@@ -2456,17 +2503,17 @@ app.component('doctor-edit-profile', {
         },
 
         showSuccess(msg) {
-            this.successMsg = msg
-            this.errorMsg   = ''
-            clearTimeout(this._sTimer)
-            this._sTimer = setTimeout(() => { this.successMsg = '' }, 3500)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
 
         showError(msg) {
-            this.errorMsg   = msg
-            this.successMsg = ''
-            clearTimeout(this._eTimer)
-            this._eTimer = setTimeout(() => { this.errorMsg = '' }, 4000)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         },
 
         async save() {
@@ -2687,8 +2734,9 @@ app.component('treatment-page', {
 
         async fetchTreatment() {
             try {
+                const aid = this.appt.appointment_id || this.appt.id
                 const res = await axios.get(
-                    `/api/treatment/${this.appt.appointment_id}?user_id=${this.$root.user.user_id}`
+                    `/api/treatment/${aid}?user_id=${this.$root.user.user_id}`
                 )
 
                 const d = res.data
@@ -2717,7 +2765,8 @@ app.component('treatment-page', {
             this.errorMsg = ''
 
             try {
-                await axios.post(`/api/treatment/${this.appt.appointment_id}`, {
+                const aid = this.appt.appointment_id || this.appt.id
+                await axios.post(`/api/treatment/${aid}`, {
                     user_id:      this.$root.user.user_id,
                     diagnosis:    this.form.diagnosis,
                     prescription: this.form.prescription,
@@ -2824,11 +2873,12 @@ app.component('doctor-patient-history', {
                                     <th>Prescription</th>
                                     <th>Medicines</th>
                                     <th>Status</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr v-if="history.length === 0">
-                                    <td colspan="8">
+                                    <td colspan="10">
                                         <div class="doctor-empty-compact">
                                             <svg width="30" height="30"
                                                  viewBox="0 0 24 24" fill="none"
@@ -2890,6 +2940,13 @@ app.component('doctor-patient-history', {
                                             {{ h.status }}
                                         </span>
                                     </td>
+                                    <td>
+                                        <button v-if="h.status === 'Completed'"
+                                                class="doctor-btn-outline doctor-action-sm"
+                                                @click="editTreatment(h)">
+                                            Edit
+                                        </button>
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>
@@ -2932,10 +2989,9 @@ app.component('doctor-patient-history', {
             this.loading = true
             try {
                 const res = await axios.get(
-                    `/api/patient/${this.patient.patient_id}/history`,
-                    { withCredentials: true }
+                    `/api/patient/history/${this.patient.patient_id}`
                 )
-                this.history = res.data.history || []
+                this.history = res.data || []
             } catch (e) {
                 console.error('Failed to load history:', e)
                 this.history = []
@@ -2957,6 +3013,11 @@ app.component('doctor-patient-history', {
                 'status-completed': status === 'Completed',
                 'status-cancelled': status === 'Cancelled'
             }
+        },
+
+        editTreatment(h) {
+            this.$root.selectedAppointment = { ...h, patient_name: this.patient.name }
+            this.$root.currentView = 'treatment-page'
         }
     }
 })
@@ -3110,13 +3171,20 @@ app.component('doctor-availability', {
                                 <td>{{ formatDate(av.date) }}</td>
                                 <td><strong>{{ av.slot }}</strong></td>
                                 <td>
-                                    <button
-                                        v-if="!av.is_booked"
-                                        class="doctor-btn-danger doctor-action-sm"
-                                        @click="deleteSlot(av)">
-                                        Remove
-                                    </button>
-                                    <span v-else class="text-muted" style="font-size:0.82rem">—</span>
+                                    <div class="d-flex gap-2">
+                                        <button
+                                            v-if="!av.is_booked"
+                                            class="doctor-btn-danger doctor-action-sm"
+                                            @click="deleteSlot(av)">
+                                            Delete
+                                        </button>
+                                        <button
+                                            v-else
+                                            class="doctor-btn-outline doctor-action-sm"
+                                            @click="clearSlot(av)">
+                                            Make Available
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         </tbody>
@@ -3135,11 +3203,11 @@ app.component('doctor-availability', {
             selectedDate: null,
             selectedSlots: [],
             slots: [
-                '8:00 AM - 10:00 AM',
-                '10:00 AM - 12:00 PM',
-                '2:00 PM - 4:00 PM',
-                '4:00 PM - 6:00 PM',
-                '6:00 PM - 8:00 PM'
+                '8:00 - 10:00 a.m.',
+                '10:00 - 12:00 p.m.',
+                '2:00 - 4:00 p.m.',
+                '4:00 - 6:00 p.m.',
+                '6:00 - 8:00 p.m.'
             ],
             allSlots: [],
             saving: false,
@@ -3402,6 +3470,23 @@ app.component('doctor-availability', {
                 )
             }
         },
+        async clearSlot(av) {
+            const confirmed = confirm(
+                'Mark slot "' + av.slot + '" as available again?'
+            )
+            if (!confirmed) return
+
+            try {
+                await axios.put('/api/doctor/availability/' + av.id + '/clear', {
+                    user_id: this.currentUserId()
+                }, { withCredentials: true })
+
+                this.showSuccess('Slot is now available for new bookings')
+                await this.fetchAllSlots()
+            } catch (e) {
+                this.showError(e.response?.data?.error || 'Failed to clear slot')
+            }
+        },
 
         async fetchAllSlots() {
             try {
@@ -3448,17 +3533,17 @@ app.component('doctor-availability', {
         },
 
         showSuccess(msg) {
-            this.successMsg = msg
-            this.errorMsg = ''
-            clearTimeout(this._sTimer)
-            this._sTimer = setTimeout(() => { this.successMsg = '' }, 3000)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
 
         showError(msg) {
-            this.errorMsg = msg
-            this.successMsg = ''
-            clearTimeout(this._eTimer)
-            this._eTimer = setTimeout(() => { this.errorMsg = '' }, 4000)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         }
     }
 })
@@ -3554,6 +3639,7 @@ app.component('admin-dashboard', {
             <!-- Search bar -->
             <div class="admin-search-row mb-4">
                 <input v-model="search"
+                       @input="handleSearchInput"
                        @keyup.enter="runSearch"
                        class="admin-search-input"
                        placeholder="Search doctors or patients by name, email, specialization, department...">
@@ -3702,6 +3788,7 @@ app.component('admin-dashboard', {
                                 <th>Date</th>
                                 <th>Slot</th>
                                 <th>Status</th>
+                                <th class="text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -3713,6 +3800,9 @@ app.component('admin-dashboard', {
                                 <td>{{ a.slot }}</td>
                                 <td>
                                     <span class="admin-status status-booked">{{ a.status }}</span>
+                                </td>
+                                <td class="text-center">
+                                    <button class="admin-btn-danger admin-action-sm" @click="cancelAppointment(a.id)">Cancel</button>
                                 </td>
                             </tr>
                         </tbody>
@@ -3827,18 +3917,22 @@ app.component('admin-dashboard', {
 
     methods: {
         showSuccess(msg) {
-            this.message = msg; this.error = ''
-            clearTimeout(this._msgTimer)
-            this._msgTimer = setTimeout(() => { this.message = '' }, 2500)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
         showError(msg) {
-            this.error = msg; this.message = ''
-            clearTimeout(this._errTimer)
-            this._errTimer = setTimeout(() => { this.error = '' }, 2500)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         },
         doctorPhoto(photo) {
             if (!photo || photo === 'default_doctor.png') return '/static/images/default-doctor.png'
+                        if (String(photo).startsWith('/static/') || String(photo).startsWith('http')) return photo
             return `/static/uploads/${photo}`
+
         },
         async fetchDashboard() {
             try {
@@ -3883,6 +3977,17 @@ app.component('admin-dashboard', {
         },
 
         /* ---- Search ---- */
+        handleSearchInput() {
+            const q = (this.search || '').trim()
+            if (!q) {
+                this.clearSearch()
+                return
+            }
+            clearTimeout(this._searchTimer)
+            this._searchTimer = setTimeout(() => {
+                this.runSearch()
+            }, 300)
+        },
         async runSearch() {
             const q = (this.search || '').trim()
             if (!q) { this.showResults = false; this.searchDoctors = []; this.searchPatients = []; return }
@@ -3982,6 +4087,20 @@ app.component('admin-dashboard', {
         },
         exportPatientCSV(patientId) {
             window.open(`/api/admin/export/${patientId}?user_id=${this.$root.user.user_id}`, '_blank')
+        },
+        async cancelAppointment(apptId) {
+            const confirmed = confirm('Are you sure you want to cancel this appointment?')
+            if (!confirmed) return
+            try {
+                await axios.put(`/api/admin/appointment/${apptId}`, {
+                    user_id: this.$root.user.user_id,
+                    status:  'Cancelled'
+                })
+                this.showSuccess('Appointment cancelled successfully')
+                await this.loadAppointments()
+            } catch (err) {
+                this.showError(err.response?.data?.error || 'Failed to cancel appointment')
+            }
         },
 
         /* ---- Charts ---- */
@@ -4303,18 +4422,22 @@ app.component('admin-doctor-detail', {
 
     methods: {
         showSuccess(msg) {
-            this.message = msg; this.error = ''
-            clearTimeout(this._msgTimer)
-            this._msgTimer = setTimeout(() => { this.message = '' }, 2500)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
         showError(msg) {
-            this.error = msg; this.message = ''
-            clearTimeout(this._errTimer)
-            this._errTimer = setTimeout(() => { this.error = '' }, 2500)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         },
         doctorPhoto(photo) {
             if (!photo || photo === 'default_doctor.png') return '/static/images/default-doctor.png'
+                        if (String(photo).startsWith('/static/') || String(photo).startsWith('http')) return photo
             return `/static/uploads/${photo}`
+
         },
         statusClass(s) {
             if (s === 'Booked')    return 'status-booked'
@@ -4587,7 +4710,7 @@ app.component('add-doctor', {
                         <input v-model="form.fee" type="number" min="0" class="form-control admin-form-control" placeholder="Consultation fee">
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Department</label>
+                        <label class="form-label">Department <span class="text-danger">*</span></label>
                         <select v-model="form.department_id" class="form-control admin-form-control">
                             <option value="">Select department</option>
                             <option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</option>
@@ -4648,14 +4771,16 @@ app.component('add-doctor', {
 
     methods: {
         showSuccess(msg) {
-            this.message = msg; this.error = ''
-            clearTimeout(this._msgTimer)
-            this._msgTimer = setTimeout(() => { this.message = '' }, 2500)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
         showError(msg) {
-            this.error = msg; this.message = ''
-            clearTimeout(this._errTimer)
-            this._errTimer = setTimeout(() => { this.error = '' }, 2500)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         },
         async fetchDepartments() {
             try {
@@ -4671,6 +4796,10 @@ app.component('add-doctor', {
         },
         async create() {
             if (this.saving) return
+            if (!this.form.department_id) {
+                this.showError('Department is required.')
+                return
+            }
             this.saving = true
             try {
                 const fd = new FormData()
@@ -4829,14 +4958,16 @@ app.component('edit-doctor', {
 
     methods: {
         showSuccess(msg) {
-            this.message = msg; this.error = ''
-            clearTimeout(this._msgTimer)
-            this._msgTimer = setTimeout(() => { this.message = '' }, 2500)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
         showError(msg) {
-            this.error = msg; this.message = ''
-            clearTimeout(this._errTimer)
-            this._errTimer = setTimeout(() => { this.error = '' }, 2500)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         },
         async fetchDepartments() {
             try {
@@ -4984,14 +5115,16 @@ app.component('edit-patient', {
 
     methods: {
         showSuccess(msg) {
-            this.message = msg; this.error = ''
-            clearTimeout(this._msgTimer)
-            this._msgTimer = setTimeout(() => { this.message = '' }, 2500)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
         showError(msg) {
-            this.error = msg; this.message = ''
-            clearTimeout(this._errTimer)
-            this._errTimer = setTimeout(() => { this.error = '' }, 2500)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         },
         goBack() {
             this.$root.currentView = 'admin-dashboard'
@@ -5095,7 +5228,6 @@ app.component('admin-appointments', {
                                 <th>Date</th>
                                 <th>Slot</th>
                                 <th>Status</th>
-                                <th>Change Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -5107,17 +5239,6 @@ app.component('admin-appointments', {
                                 <td>{{ a.slot }}</td>
                                 <td>
                                     <span class="admin-status" :class="statusClass(a.status)">{{ a.status }}</span>
-                                </td>
-                                <td>
-                                    <div class="appt-custom-select appt-change-select">
-                                        <select class="appt-select" @change="update(a.id, $event)">
-                                            <option selected disabled>Change</option>
-                                            <option>Booked</option>
-                                            <option>Completed</option>
-                                            <option>Cancelled</option>
-                                        </select>
-                                        <span class="appt-select-arrow">▾</span>
-                                    </div>
                                 </td>
                             </tr>
                         </tbody>
@@ -5161,14 +5282,16 @@ app.component('admin-appointments', {
 
     methods: {
         showSuccess(msg) {
-            this.message = msg; this.error = ''
-            clearTimeout(this._msgTimer)
-            this._msgTimer = setTimeout(() => { this.message = '' }, 2500)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
         showError(msg) {
-            this.error = msg; this.message = ''
-            clearTimeout(this._errTimer)
-            this._errTimer = setTimeout(() => { this.error = '' }, 2500)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         },
         statusClass(s) {
             if (s === 'Booked')    return 'status-booked'
@@ -5284,14 +5407,16 @@ app.component('admin-departments', {
 
     methods: {
         showSuccess(msg) {
-            this.message = msg; this.error = ''
-            clearTimeout(this._msgTimer)
-            this._msgTimer = setTimeout(() => { this.message = '' }, 2500)
+            this.message = msg; this.error = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
         },
         showError(msg) {
-            this.error = msg; this.message = ''
-            clearTimeout(this._errTimer)
-            this._errTimer = setTimeout(() => { this.error = '' }, 2500)
+            this.error = msg; this.message = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            clearTimeout(this._errTimer);
+            this._errTimer = setTimeout(() => { this.error = '' }, 2000);
         },
         async fetch() {
             try {
@@ -5342,4 +5467,72 @@ app.component('admin-departments', {
     }
 })
 
-app.mount('#app')
+
+app.component('payment-page', {
+    template: `
+    <div class="patient-shell">
+        <patient-navbar></patient-navbar>
+        <div class="patient-main d-flex justify-content-center">
+            <div class="patient-section-card" style="max-width: 500px; width: 100%;">
+                <h3 class="patient-page-title text-center">Secure Payment</h3>
+                <p class="text-center text-muted">Complete your transaction for medical services</p>
+                
+                <div v-if="success" class="alert alert-success text-center">
+                    Payment Successful! Redirecting...
+                </div>
+
+                <form @submit.prevent="processPayment" v-else>
+                    <div class="mb-3">
+                        <label class="form-label">Amount Due</label>
+                        <input type="text" class="form-control" :value="'₹' + amount" readonly style="background:#f8fafc; font-weight:bold;">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Card Holder Name</label>
+                        <input type="text" class="form-control" required placeholder="Name on card">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Card Number</label>
+                        <input type="text" class="form-control" required placeholder="0000 0000 0000 0000" maxlength="19">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Expiry Date</label>
+                            <input type="text" class="form-control" required placeholder="MM/YY" maxlength="5">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">CVV</label>
+                            <input type="password" class="form-control" required placeholder="***" maxlength="3">
+                        </div>
+                    </div>
+                    <button class="patient-btn-primary w-100 py-2 mt-3" :disabled="loading">
+                        <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+                        Pay Now
+                    </button>
+                    <button type="button" class="btn btn-link w-100 mt-2 text-decoration-none" @click="$root.currentView='history-page'">Cancel</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    `,
+    data() {
+        return {
+            amount: Math.floor(Math.random() * (1500 - 500 + 1) + 500),
+            loading: false,
+            success: false
+        }
+    },
+    methods: {
+        processPayment() {
+            this.loading = true
+            setTimeout(() => {
+                this.loading = false
+                this.success = true
+                setTimeout(() => {
+                    this.$root.currentView = 'history-page'
+                }, 2000)
+            }, 1500)
+        }
+    }
+})
+
+app.mount('#app')

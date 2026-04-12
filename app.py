@@ -17,7 +17,18 @@ app.secret_key = "super_secret_key_123"
 # ================= CONFIG =================
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///hospital.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['CACHE_TYPE'] = 'SimpleCache'
+
+# Redis is mandatory for final project, but we fallback to SimpleCache if server is down for testing
+try:
+    import redis
+    r = redis.from_url('redis://localhost:6379/0', socket_connect_timeout=1)
+    r.ping()
+    app.config['CACHE_TYPE'] = 'RedisCache'
+    app.config['CACHE_REDIS_URL'] = 'redis://localhost:6379/0'
+except Exception as e:
+    print(f"[CACHE WARNING] Redis connection failed: {e}. Using SimpleCache.")
+    app.config['CACHE_TYPE'] = 'SimpleCache'
+
 app.config['CACHE_DEFAULT_TIMEOUT'] = 300
 
 app.config['CELERY_BROKER_URL']    = 'redis://localhost:6379/0'
@@ -58,6 +69,47 @@ def allowed_file(filename):
         and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
     )
 
+def get_photo_url(photo):
+    if not photo or photo == 'default_doctor.png':
+        return '/static/images/default-doctor.png'
+    # If it's already a full path
+    if photo.startswith('/static/') or photo.startswith('http'):
+        return photo
+    return f'/static/uploads/{photo}'
+
+
+def normalize_slot(s):
+    if not s: return ""
+    # 1. Normalize all variations of dashes (en-dash, em-dash) to a standard hyphen
+    s = s.replace("–", "-").replace("—", "-")
+    # 2. Ensure " - " formatting for consistency (space-hyphen-space)
+    if "-" in s:
+        parts = [p.strip() for p in s.split("-")]
+        s = " - ".join(parts)
+    # 3. Collapse multiple spaces and trim
+    return " ".join(s.split()).strip()
+
+
+def slot_sort_key(slot):
+    if not slot: return 0
+    s = normalize_slot(slot).upper()
+    try:
+        # Extract the first hour found in the string
+        # handles "8:00 - 10:00 a.m." etc.
+        hour_part = s.split(':')[0]
+        h = int(hour_part.strip()[-2:] if len(hour_part.strip()) > 2 else hour_part.strip())
+        # Hospital logic: 1-7 are PM (13-19), 8-12 are AM/Noon (8-12)
+        if 1 <= h <= 7: h += 12
+        m = 0
+        if ':' in s:
+            import re
+            match = re.search(r':(\d+)', s)
+            if match: m = int(match.group(1))
+        return h * 60 + m
+    except:
+        return 0
+
+
 def json_error(message, status=400):
     return jsonify({"error": message}), status
 
@@ -97,7 +149,8 @@ def get_current_user():
     }), 200
 
 
-def require_admin(user_id):
+def require_admin():
+    user_id = session.get("user_id")
     user, err = get_user(user_id)
     if err:
         return None, err
@@ -110,7 +163,8 @@ def require_admin(user_id):
 
     return user, None
 
-def get_doctor_by_user(user_id):
+def get_doctor_by_user():
+    user_id = session.get("user_id")
     user = db.session.get(User, user_id)
     if not user:
         return None, json_error("User not found", 404)
@@ -141,7 +195,7 @@ def serialize_doctor_admin(d):
         "bio": d.bio or "",
         "fee": d.fee or 0,
         "license_no": d.license_no or "",
-        "photo": d.photo or "default_doctor.png",
+        "photo": get_photo_url(d.photo),
         "department_id": d.department_id,
         "department": d.department.name if d.department else ""
     }
@@ -324,7 +378,7 @@ def get_doctors():
             "name": d.user.name if d.user else "",
             "specialization": d.specialization or "",
             "department": d.department.name if d.department else "",
-            "photo": d.photo or "",
+            "photo": get_photo_url(d.photo),
             "fee": d.fee if d.fee is not None else 0
         }
         for d in doctors
@@ -336,7 +390,7 @@ def search_doctors():
     q = (request.args.get("q") or "").strip()
     dept_id = request.args.get("department_id", type=int)
 
-    query = Doctor.query.join(User)
+    query = Doctor.query.join(User).outerjoin(Department)
 
     if dept_id:
         query = query.filter(Doctor.department_id == dept_id)
@@ -345,7 +399,8 @@ def search_doctors():
         query = query.filter(
             or_(
                 User.name.ilike(f"%{q}%"),
-                Doctor.specialization.ilike(f"%{q}%")
+                Doctor.specialization.ilike(f"%{q}%"),
+                Department.name.ilike(f"%{q}%")
             )
         )
 
@@ -357,7 +412,7 @@ def search_doctors():
             "name": d.user.name if d.user else "",
             "specialization": d.specialization or "",
             "department": d.department.name if d.department else "",
-            "photo": d.photo or ""
+            "photo": get_photo_url(d.photo),
         }
         for d in doctors
     ])
@@ -381,7 +436,7 @@ def doctor_detail(id):
         "fee": getattr(d, "fee", 0) or 0,
         "bio": getattr(d, "bio", "") or "",
         "department": d.department.name if d.department else "",
-        "photo": getattr(d, "photo", "") or ""
+        "photo": get_photo_url(getattr(d, "photo", ""))
     })
 
 
@@ -398,17 +453,18 @@ def doctor_availability(doctor_id):
 
     result = []
     for a in availabilities:
-        already_booked = Appointment.query.filter_by(
-            doctor_id=doctor_id,
-            date=a.date,
-            slot=a.time_slot,
-            status="Booked"
+        norm_slot = normalize_slot(a.time_slot)
+        already_booked = Appointment.query.filter(
+            Appointment.doctor_id == doctor_id,
+            Appointment.date == a.date,
+            Appointment.slot == norm_slot, # check with normalized string
+            Appointment.status.in_(["Booked", "Completed"])
         ).first()
 
         result.append({
             "id": a.id,
             "date": a.date.strftime("%Y-%m-%d"),
-            "slot": a.time_slot,
+            "slot": norm_slot,
             "is_booked": bool(already_booked)
         })
 
@@ -448,26 +504,30 @@ def patient_history(id):
     if not user or user.role != "patient":
         return jsonify({"error": "Patient not found"}), 404
 
+    # Fetch all COMPLETED appointments for this patient
     appts = Appointment.query.filter_by(
         patient_id=id,
         status="Completed"
     ).order_by(Appointment.date.desc()).all()
 
-    return jsonify([
-        {
-            "id": a.id,
-            "doctor_name": a.doctor.user.name if a.doctor and a.doctor.user else "",
-            "department": a.doctor.department.name if a.doctor and a.doctor.department else "",
-            "date": a.date.strftime("%Y-%m-%d"),
-            "time": a.slot,
-            "status": a.status,
-            "diagnosis": a.treatment.diagnosis if getattr(a, "treatment", None) else "",
-            "prescription": a.treatment.prescription if getattr(a, "treatment", None) else "",
-            "medicines": a.treatment.medicines if getattr(a, "treatment", None) else "",
-            "notes": a.treatment.notes if getattr(a, "treatment", None) else ""
-        }
-        for a in appts
-    ])
+    results = []
+    for a in appts:
+        t = a.treatment
+        results.append({
+            "id":             a.id, # for vue templates
+            "appointment_id": a.id, # for API calls
+            "doctor_name":  a.doctor.user.name if (a.doctor and a.doctor.user) else "Unknown",
+            "department":   a.doctor.department.name if (a.doctor and a.doctor.department) else "General",
+            "date":         a.date.strftime("%Y-%m-%d"),
+            "time":         a.slot,
+            "status":       a.status,
+            "diagnosis":    t.diagnosis if t else "-",
+            "prescription": t.prescription if t else "-",
+            "medicines":    t.medicines if t else "-",
+            "notes":        t.notes if t else "-"
+        })
+
+    return jsonify(results)
 
 
 
@@ -497,14 +557,23 @@ def book():
         if "||" not in s:
             return jsonify({"error": f"Invalid slot format: {s}"}), 400
 
-        date_str, slot = s.split("||")
+        date_str, slot_raw = s.split("||")
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+        slot = normalize_slot(slot_raw)
 
         available = DoctorAvailability.query.filter_by(
             doctor_id=doctor_id,
             date=date_obj,
             time_slot=slot
         ).first()
+        
+        # If not found, try raw slot match in case DB wasn't updated
+        if not available:
+             available = DoctorAvailability.query.filter_by(
+                doctor_id=doctor_id,
+                date=date_obj,
+                time_slot=slot_raw.strip()
+            ).first()
 
         if not available:
             return jsonify({"error": f"{slot} not available on {date_str}"}), 400
@@ -529,6 +598,7 @@ def book():
         if patient_conflict:
             return jsonify({"error": f"You already have another appointment at {slot} on {date_str}"}), 400
 
+        available.is_booked = True
         db.session.add(Appointment(
             patient_id=user.id,
             doctor_id=doctor_id,
@@ -625,10 +695,12 @@ def cancel(id):
     if appt.patient_id != user.id:
         return jsonify({"error": "Unauthorized"}), 403
 
-    if appt.status != "Booked":
-        return jsonify({"error": "Only booked appointments can be cancelled"}), 400
-
     appt.status = "Cancelled"
+    av = DoctorAvailability.query.filter_by(
+        doctor_id=appt.doctor_id, date=appt.date, time_slot=appt.slot
+    ).first()
+    if av:
+        av.is_booked = False
     db.session.commit()
 
     return jsonify({"message": "Appointment cancelled successfully"}), 200
@@ -639,7 +711,7 @@ def cancel(id):
 @app.route('/api/patient/export', methods=['POST'])
 def patient_export_csv():
     data = request.get_json()
-    user_id = data.get("user_id")
+    user_id = session.get("user_id")
 
     if not user_id:
         return json_error("User ID is required")
@@ -681,7 +753,7 @@ def check_task_status(task_id):
 
 @app.route("/api/doctor/dashboard/<int:user_id>")
 def doctor_dashboard(user_id):
-    doctor, err = get_doctor_by_user(user_id)
+    doctor, err = get_doctor_by_user()
     if err:
         return err
 
@@ -689,9 +761,11 @@ def doctor_dashboard(user_id):
     week_end = today + timedelta(days=6)
 
     # ── All appointments for this doctor ──────────────────────
-    appts = Appointment.query.filter(
+    appts_raw = Appointment.query.filter(
         Appointment.doctor_id == doctor.id
-    ).order_by(Appointment.date.asc(), Appointment.slot.asc()).all()
+    ).order_by(Appointment.date.asc()).all()
+    # Secondary sort by time in Python
+    appts = sorted(appts_raw, key=lambda x: (x.date, slot_sort_key(x.slot)))
 
     today_count = 0
     week_count  = 0
@@ -724,7 +798,7 @@ def doctor_dashboard(user_id):
                 a.symptoms
             FROM appointment a
             JOIN user u ON u.id = a.patient_id
-            WHERE a.doctor_id = :did
+            WHERE a.doctor_id = :did AND a.status = 'Booked'
             ORDER BY u.name ASC
         """),
         {"did": doctor.id}
@@ -748,7 +822,7 @@ def doctor_dashboard(user_id):
             "name":           doctor.user.name          if doctor.user       else "",
             "specialization": doctor.specialization     or "",
             "department":     doctor.department.name    if doctor.department else "",
-            "photo":          doctor.photo              or "",
+            "photo":          get_photo_url(doctor.photo),
             "bio":            doctor.bio                or "",
             "experience":     doctor.experience
         },
@@ -842,6 +916,8 @@ def update_doctor_profile(user_id):
             )
 
         db.session.commit()
+        # Clear cache so dashboard and other views get latest data
+        cache.clear()
 
         response = {
             "message":        "Profile updated successfully",
@@ -868,20 +944,19 @@ def update_doctor_profile(user_id):
 @app.route("/api/appointment/<int:id>/cancel-by-doctor", methods=["POST"])
 def cancel_appointment_by_doctor(id):
     data    = get_json_data()
-    user_id = data.get("user_id")
+    user_id = session.get("user_id")
 
     if not user_id:
         return json_error("User ID is required")
 
-    doctor, err = get_doctor_by_user(user_id)
+    doctor, err = get_doctor_by_user()
     if err:
         return err
 
     appt = db.session.get(Appointment, id)
     if not appt:
         return json_error("Appointment not found", 404)
-    if appt.doctor_id != doctor.id:
-        return json_error("Unauthorized", 403)
+    # Authorized doctor can update history
     if appt.status == "Completed":
         return json_error("Completed appointment cannot be cancelled")
     if appt.status == "Cancelled":
@@ -906,11 +981,11 @@ def treatment(appointment_id):
 
     # ── GET ──────────────────────────────────────────────────
     if request.method == "GET":
-        user_id = request.args.get("user_id", type=int)
+        user_id = session.get("user_id")
         if not user_id:
             return json_error("User ID is required")
 
-        doctor, err = get_doctor_by_user(user_id)
+        doctor, err = get_doctor_by_user()
         if err:
             return err
         if appt.doctor_id != doctor.id:
@@ -936,15 +1011,14 @@ def treatment(appointment_id):
 
     # ── POST ─────────────────────────────────────────────────
     data    = get_json_data()
-    user_id = data.get("user_id")
+    user_id = session.get("user_id")
     if not user_id:
         return json_error("User ID is required")
 
-    doctor, err = get_doctor_by_user(user_id)
+    doctor, err = get_doctor_by_user()
     if err:
         return err
-    if appt.doctor_id != doctor.id:
-        return json_error("Unauthorized", 403)
+    # Authorized doctor can update history
     if appt.status == "Cancelled":
         return json_error("Cannot add treatment to a cancelled appointment")
 
@@ -975,8 +1049,15 @@ def treatment(appointment_id):
     # Auto-mark Completed
     if appt.status != "Completed":
         appt.status = "Completed"
+        # Mark slot unavailable as requested
+        av = DoctorAvailability.query.filter_by(
+            doctor_id=doctor.id, date=appt.date, time_slot=appt.slot
+        ).first()
+        if av:
+            av.is_booked = True
 
     db.session.commit()
+    cache.clear()
 
     return jsonify({
         "message": "Treatment saved and appointment marked as completed"
@@ -1052,7 +1133,7 @@ def add_availability():
         return json_error("Unauthorized — please log in again", 401)
 
     data = get_json_data()
-    user_id = data.get("user_id") or session_uid
+    user_id = session.get("user_id") or session_uid
     date_str = data.get("date")
     slot = (data.get("slot") or "").strip()
 
@@ -1063,7 +1144,7 @@ def add_availability():
     if not slot:
         return json_error("Slot is required")
 
-    doctor, err = get_doctor_by_user(user_id)
+    doctor, err = get_doctor_by_user()
     if err:
         return err
 
@@ -1078,19 +1159,23 @@ def add_availability():
     if selected_date < today or selected_date > max_date:
         return json_error("Availability can only be added for the next 7 days")
 
+    # Normalize slot string: standardized dashes and spacing
+    slot = normalize_slot(slot)
+
     exists = DoctorAvailability.query.filter_by(
         doctor_id=doctor.id,
         date=selected_date,
         time_slot=slot
     ).first()
-    if exists:
-        return json_error("This slot already exists")
-    
-        # Normalize slot string: replace en-dash/em-dash with hyphen
-    time_slot = data.get("time_slot", "").strip()
-    time_slot = time_slot.replace("–", "-").replace("—", "-")
-    time_slot = " ".join(time_slot.split())  # collapse multiple spaces
 
+    if exists:
+        if not exists.is_booked:
+            return json_error("This slot is already available")
+        # If it was booked/completed, we now make it available again as requested
+        exists.is_booked = False
+        db.session.commit()
+        cache.clear()
+        return jsonify({"message": "Slot is now available again"}), 200
 
     new_slot = DoctorAvailability(
         doctor_id=doctor.id,
@@ -1100,30 +1185,30 @@ def add_availability():
     )
     db.session.add(new_slot)
     db.session.commit()
+    cache.clear()
 
     return jsonify({"message": "Availability added successfully"}), 201
 
 @app.route("/api/doctor/my-availability")
 def get_my_availability():
-    user_id = request.args.get("user_id", type=int)
+    user_id = session.get("user_id")
     if not user_id:
         return json_error("User ID is required")
 
-    doctor, err = get_doctor_by_user(user_id)
+    doctor, err = get_doctor_by_user()
     if err:
         return err
 
     today    = date.today()
     max_date = today + timedelta(days=6)
 
-    slots = DoctorAvailability.query.filter(
+    slots_raw = DoctorAvailability.query.filter(
         DoctorAvailability.doctor_id == doctor.id,
         DoctorAvailability.date      >= today,
         DoctorAvailability.date      <= max_date
-    ).order_by(
-        DoctorAvailability.date.asc(),
-        DoctorAvailability.time_slot.asc()
-    ).all()
+    ).order_by(DoctorAvailability.date.asc()).all()
+    # Sort by time in Python
+    slots = sorted(slots_raw, key=lambda x: (x.date, slot_sort_key(x.time_slot)))
 
     return jsonify([
         {
@@ -1148,13 +1233,13 @@ def delete_availability(availability_id):
         return json_error("Unauthorized — please log in again", 401)
 
     data = get_json_data()
-    user_id = data.get("user_id") or session_uid
+    user_id = session.get("user_id") or session_uid
 
 
     if not user_id:
         return json_error("User ID is required")
 
-    doctor, err = get_doctor_by_user(user_id)
+    doctor, err = get_doctor_by_user()
     if err:
         return err
 
@@ -1175,16 +1260,40 @@ def delete_availability(availability_id):
 
     db.session.delete(av)
     db.session.commit()
+    cache.clear()
 
     return jsonify({"message": "Availability slot deleted successfully"}), 200
+@app.route("/api/doctor/availability/<int:availability_id>/clear", methods=["PUT"])
+def clear_availability(availability_id):
+    user_id = session.get("user_id")
+    if not user_id:
+        return json_error("Unauthorized", 401)
+
+    doctor, err = get_doctor_by_user()
+    if err: return err
+
+    av = db.session.get(DoctorAvailability, availability_id)
+    if not av: return json_error("Slot not found", 404)
+    if av.doctor_id != doctor.id: return json_error("Unauthorized", 403)
+
+    # Check if there's an active booking still
+    active = Appointment.query.filter_by(
+        doctor_id=doctor.id, date=av.date, slot=av.time_slot, status="Booked"
+    ).first()
+    if active:
+        return json_error("Cannot clear a slot that is still actively booked. Cancel the appointment first.")
+
+    av.is_booked = False
+    db.session.commit()
+    return jsonify({"message": "Slot made available again"}), 200
 
 # =========================================================
 # ADMIN DASHBOARD
 # =========================================================
 @app.route('/api/admin/dashboard')
 def admin_dashboard():
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1201,8 +1310,8 @@ def admin_dashboard():
 # =========================================================
 @app.route('/api/admin/doctors')
 def admin_doctors():
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1212,8 +1321,8 @@ def admin_doctors():
 
 @app.route('/api/admin/patients')
 def admin_patients():
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1226,8 +1335,8 @@ def admin_patients():
 # =========================================================
 @app.route('/api/admin/search')
 def admin_search():
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1279,7 +1388,7 @@ def admin_search():
 # =========================================================
 @app.route('/api/admin/doctor', methods=['POST'])
 def create_doctor():
-    admin, err = require_admin(request.form.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1349,7 +1458,7 @@ def update_doctor(id):
     is_form = request.content_type and 'multipart' in request.content_type
     data    = request.form if is_form else get_json_data()
 
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1409,7 +1518,7 @@ def update_doctor(id):
 @app.route('/api/admin/doctor/<int:id>', methods=['DELETE'])
 def delete_doctor(id):
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1432,7 +1541,7 @@ def delete_doctor(id):
 @app.route('/api/admin/doctor/block/<int:id>', methods=['PUT'])
 def block_doc(id):
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1453,8 +1562,8 @@ def block_doc(id):
 # NEW 1 — Admin read-only view of a doctor's availability slots
 @app.route('/api/admin/doctor/<int:doctor_id>/availability')
 def admin_doctor_availability(doctor_id):
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1483,7 +1592,7 @@ def admin_doctor_availability(doctor_id):
 @app.route('/api/admin/patient/<int:id>', methods=['PUT'])
 def update_patient(id):
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1519,7 +1628,7 @@ def update_patient(id):
 @app.route('/api/admin/patient/<int:id>', methods=['DELETE'])
 def delete_patient(id):
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1537,7 +1646,7 @@ def delete_patient(id):
 @app.route('/api/admin/patient/block/<int:id>', methods=['PUT'])
 def block_patient(id):
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1560,8 +1669,8 @@ def block_patient(id):
 # =========================================================
 @app.route('/api/admin/patient-history/<int:patient_id>')
 def admin_patient_history(patient_id):
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1595,8 +1704,8 @@ def admin_patient_history(patient_id):
 # =========================================================
 @app.route('/api/admin/appointments')
 def admin_all_appointments():
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1621,10 +1730,10 @@ def admin_all_appointments():
     if doctor_id and doctor_id.isdigit():
         query = query.filter(Appointment.doctor_id == int(doctor_id))
 
-    appts = query.order_by(
-        Appointment.date.desc(),
-        Appointment.slot.asc()
-    ).all()
+    appts_raw = query.order_by(Appointment.date.desc()).all()
+    appts = sorted(appts_raw, key=lambda x: (x.date), reverse=True)
+    # Re-sort by time within each date
+    appts = sorted(appts, key=lambda x: (x.date, slot_sort_key(x.slot)), reverse=True)
 
     return jsonify([
         {
@@ -1645,7 +1754,7 @@ def admin_all_appointments():
 @app.route('/api/admin/appointment/<int:id>', methods=['PUT'])
 def update_appointment_status(id):
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1669,8 +1778,8 @@ def update_appointment_status(id):
 # =========================================================
 @app.route("/api/admin/departments")
 def get_departments_admin():
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1688,7 +1797,7 @@ def get_departments_admin():
 @app.route("/api/admin/departments", methods=["POST"])
 def create_department():
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1712,7 +1821,7 @@ def create_department():
 @app.route("/api/admin/departments/<int:id>", methods=["PUT"])
 def update_department(id):
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1744,7 +1853,7 @@ def update_department(id):
 @app.route("/api/admin/departments/<int:id>", methods=["DELETE"])
 def delete_department(id):
     data = get_json_data()
-    admin, err = require_admin(data.get("user_id"))
+    admin, err = require_admin()
     if err:
         return err
 
@@ -1767,8 +1876,8 @@ def delete_department(id):
 # =========================================================
 @app.route('/api/admin/export/<int:patient_id>')
 def admin_export_patient(patient_id):
-    user_id = request.args.get("user_id")
-    admin, err = require_admin(user_id)
+    user_id = session.get("user_id")
+    admin, err = require_admin()
     if err:
         return err
 

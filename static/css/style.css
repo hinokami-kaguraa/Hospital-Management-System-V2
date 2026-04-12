@@ -2132,7 +2132,7 @@ textarea.doctor-form-control {
 /* CARD */
 .avail-picker-card {
     display: flex;
-    width: 900px;
+    width: 1000px;
     min-height: 520px;
     background: #f6f8fa;
     border-radius: 18px;
@@ -2149,7 +2149,7 @@ textarea.doctor-form-control {
 /* LEFT CALENDAR */
 .avail-calendar {
     width: 50%;
-    padding: 38px 40px;
+    padding: 38px 60px;
 }
 
 /* HEADER */
@@ -2245,7 +2245,7 @@ textarea.doctor-form-control {
 /* RIGHT PANEL */
 .avail-slots-panel {
     width: 50%;
-    padding: 38px 40px;
+    padding: 38px 60px;
     display: flex;
     flex-direction: column;
     align-items: center;
