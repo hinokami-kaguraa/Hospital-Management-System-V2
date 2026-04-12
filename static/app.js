@@ -2500,14 +2500,14 @@ app.component('doctor-edit-profile', {
         onAvatarError(e) {
             // If even default-doc.png fails, fall back to a plain bg
             e.target.style.display = 'none'
-        },
+        },  
 
         showSuccess(msg) {
             this.message = msg; this.error = '';
             window.scrollTo({ top: 0, behavior: 'smooth' });
             clearTimeout(this._msgTimer);
             this._msgTimer = setTimeout(() => { this.message = '' }, 2000);
-        },
+        },        
 
         showError(msg) {
             this.error = msg; this.message = '';
@@ -2572,6 +2572,7 @@ app.component('doctor-edit-profile', {
         }
     }
 })
+
 
 /* =========================================================
    TREATMENT PAGE
