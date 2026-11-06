@@ -12,7 +12,7 @@ import os
 from sqlalchemy import or_, text, and_
 
 app = Flask(__name__)
-app.secret_key = "super_secret_key_123"
+app.secret_key = ""
 
 # ================= CONFIG =================
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///hospital.db'
@@ -34,13 +34,13 @@ app.config['CACHE_DEFAULT_TIMEOUT'] = 300
 app.config['CELERY_BROKER_URL']    = 'redis://localhost:6379/0'
 app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
 
-app.config["GOOGLE_CHAT_WEBHOOK_URL"] = "https://chat.googleapis.com/v1/spaces/AAQAZnyk7kI/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=8g4NSM-91Oadu80qx_uM_0GZT4PigPALlcClb6yLHUk"
+app.config["GOOGLE_CHAT_WEBHOOK_URL"] = ""
 # Email config for monthly reports
 app.config['MAIL_SERVER']   = 'smtp.gmail.com'
 app.config['MAIL_PORT']     = 587
 app.config['MAIL_USE_TLS']  = True
-app.config['MAIL_USERNAME'] = '24F2005064@ds.study.iitm.ac.in'          
-app.config['MAIL_PASSWORD'] = 'gbhgzczgcakxomba'       
+app.config['MAIL_USERNAME'] = ''          
+app.config['MAIL_PASSWORD'] = ''       
 app.config['MAIL_SENDER']   = 'SehatSaathi <24F2005064@ds.study.iitm.ac.in>'
 
 
